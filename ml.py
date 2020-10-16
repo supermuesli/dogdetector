@@ -118,14 +118,13 @@ class CNN(nn.Module):
 
 		"""
 
-		# all of our images are of one class, so of course all of them will have a 100% probability
-		# of being a hit. don't forget to consider the batch_size of the training_loader !
-		# TODO add an equal amount of black-tensors (0-tensors) to the training_loader and
-		#      set their probabilities to 0%
+		# targets
 		one_tensor = torch.tensor([1 for i in range(training_loader.batch_size)]).float()
 		zero_tensor = torch.tensor([0 for i in range(training_loader.batch_size)]).float()
-		black_image = torch.tensor([[[[0 for x in range(self.im_size)] for y in range(self.im_size)] for b in range(training_loader.batch_size)]]).float()
-		noise_image = torch.tensor([[[random.randint(0, 255) for x in range(self.im_size)] for y in range(self.im_size) for b in range(training_loader.batch_size)]]).float()
+		
+		# alternataive inputs
+		black_image = torch.tensor([[[[0 for x in range(self.im_size)] for y in range(self.im_size)]] for b in range(training_loader.batch_size)]).float()
+		noise_image = torch.tensor([[[[random.randint(0, 255) for x in range(self.im_size)] for y in range(self.im_size)]] for b in range(training_loader.batch_size)]).float()
 
 		for cycle in range(cycles):
 			for batch in training_loader:
@@ -141,12 +140,12 @@ class CNN(nn.Module):
 						self.loss = self.criterion(self(noise_image), zero_tensor)		
 
 				# debugging loss
-				if cycle % 10 == 0:
+				if cycle % 10 == 9:
 					logging.info('batch loss: %f\tcycle: %d' % (self.loss, cycle))
 				
 				self.loss.backward()  # backward propagate loss
 				self.optimizer.step() # update the parameters
-				self.scheduler.step(self.loss, cycle) # adaptive learning rate: if loss doesn't decrease significantly
+				self.scheduler.step(self.loss)        # adaptive learning rate: if loss doesn't decrease significantly
 				                                      # then the learning rate will be decreased
 				                                      # read here:
 				                                      # https://github.com/pytorch/pytorch/pull/1370/commits/9f48a2cccb238aea13e2f170e60d48430e2b2aee
@@ -177,11 +176,11 @@ def main():
 
 	# customize your datasource here
 	dogs = '/home/muesli/Downloads/dogscats/dogs'
-	image_size = 255       # resize and pad images to shape 255x255
-	data_total = ImageGrayScale(dogs, image_size)
+	image_size = 255       # resize and (black-border)-pad images to shape 255x255
 	data_ratio = 0.01      # only use the first 1% of the dataset
 	train_test_ratio = 0.9 # this would result in a 90:10 training:testing split
 	batch_size = 16        # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	data_total = ImageGrayScale(dogs, image_size)
 
 	# split data into training:testing datasets
 	training_data = data_total[:int(data_ratio*train_test_ratio*len(data_total))]
