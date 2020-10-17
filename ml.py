@@ -74,7 +74,7 @@ class ImageGrayScale(Dataset):
 class CNN(nn.Module):
 	""" Convolutional Neural Network for classification of grayscale images. """
 
-	def __init__(self, im_size=255, lr=0.01):
+	def __init__(self, im_size=100, lr=0.01):
 		super(CNN, self).__init__()
 		
 		self.im_size = im_size
@@ -98,8 +98,8 @@ class CNN(nn.Module):
 		x = x.view(-1, 16 * 60*60) # flatten the self.conv2 convolution layer. i have no idea why 60*60, though
 		x = F.relu(self.fc1(x))
 		x = F.relu(self.fc2(x))
-		x = F.softmax(self.fc3(x))
-		x = x.squeeze(-1)          # remove batch_dim from tensor so only the resulting layer remains as a tensor
+		x = F.softmax(self.fc3(x)) # squash value to interval [0, 1]
+		x = x.squeeze(-1)          # squeeze output into batch_dim
 		return x
 
 	def save(self, path):
@@ -192,8 +192,8 @@ def main():
 
 	# customize your CNN here
 	model_path = 'model'
-	training_cycles = 10
-	learning_rate = 0.01
+	training_cycles = 1000
+	learning_rate = 0.00000001
 
 
 	# create a CNN
