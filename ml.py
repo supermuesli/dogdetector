@@ -98,8 +98,11 @@ class CNN(nn.Module):
 		x = x.view(-1, 16 * 60*60) # flatten the self.conv2 convolution layer. i have no idea why 60*60, though
 		x = F.relu(self.fc1(x))
 		x = F.relu(self.fc2(x))
-		x = F.softmax(self.fc3(x)) # squash value to interval [0, 1]
+		x = F.relu(self.fc3(x)) 
 		x = x.squeeze(-1)          # squeeze output into batch_dim
+
+		# squash value to interval [0, 1]
+
 		return x
 
 	def save(self, path):
@@ -117,10 +120,6 @@ class CNN(nn.Module):
 			training_loader (torch.utils.data.DataLoader) : DataLoader containing the dataset.
 
 		"""
-
-		# targets
-		one_tensor = torch.tensor([1 for i in range(training_loader.batch_size)]).float()
-		zero_tensor = torch.tensor([0 for i in range(training_loader.batch_size)]).float()
 		
 		# alternataive inputs
 		black_image = torch.tensor([[[[0 for x in range(self.im_size)] for y in range(self.im_size)]] for b in range(training_loader.batch_size)]).float()
@@ -130,18 +129,21 @@ class CNN(nn.Module):
 			for batch in training_loader:
 				self.optimizer.zero_grad() # don't forget to zero the gradient buffers per batch !
 
-				# randomly throw in black- and noise-tensors with zero-tensor output
+				choice = 'criterion against batch'
+				# randomly throw in black- and noise-tensors with torch.zeros output
 				if random.random() < 0.5:
-					self.loss = self.criterion(self(batch), one_tensor)
+					self.loss = self.criterion(self(batch), torch.ones(batch.size()[0]))
 				else:
 					if random.random() < 0.5:
-						self.loss = self.criterion(self(black_image), zero_tensor)	
+						self.loss = self.criterion(self(black_image), torch.zeros(training_loader.batch_size))
+						choice = 'criterion against black tensor'	
 					else:
-						self.loss = self.criterion(self(noise_image), zero_tensor)		
+						self.loss = self.criterion(self(noise_image), torch.zeros(training_loader.batch_size))
+						choice = 'criterion against noise tensor'
 
 				# debugging loss
 				if cycle % 10 == 9:
-					logging.info('batch loss: %f\tcycle: %d' % (self.loss, cycle))
+					logging.info('batch loss: %f\t%s\tcycle: %d' % (self.loss, choice, cycle))
 				
 				self.loss.backward()  # backward propagate loss
 				self.optimizer.step() # update the parameters
@@ -149,6 +151,7 @@ class CNN(nn.Module):
 				                                      # then the learning rate will be decreased
 				                                      # read here:
 				                                      # https://github.com/pytorch/pytorch/pull/1370/commits/9f48a2cccb238aea13e2f170e60d48430e2b2aee
+
 
 	def test(self, testing_loader):
 		""" Test the CNN for the given testing dataset. 
@@ -177,18 +180,21 @@ def main():
 	# customize your datasource here
 	dogs = '/home/muesli/Downloads/dogscats/dogs'
 	image_size = 255       # resize and (black-border)-pad images to shape 255x255
-	data_ratio = 0.01      # only use the first 1% of the dataset
-	train_test_ratio = 0.9 # this would result in a 90:10 training:testing split
+	data_ratio = 0.1       # only use the first 1% of the dataset
+	train_test_ratio = 0.6 # this would result in a 90:10 training:testing split
 	batch_size = 16        # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
 
 	# split data into training:testing datasets
 	training_data = data_total[:int(data_ratio*train_test_ratio*len(data_total))]
-	testing_data = data_total[int(data_ratio*train_test_ratio*len(data_total)):]
+	#training_data = data_total[:13]
+	#testing_data = data_total[int(data_ratio*train_test_ratio*len(data_total)):]
+	#testing-data = data_total[10:20]
 
 	# data loaders (sexy iterators)
-	training_loader = torch.utils.data.DataLoader(training_data, batch_size=16, shuffle=True, num_workers=2)
-	testing_loader = torch.utils.data.DataLoader(testing_data, batch_size=1, shuffle=True, num_workers=2)
+	training_loader = torch.utils.data.DataLoader(training_data, batch_size=batch_size, shuffle=True, num_workers=2)
+	#testing_loader = torch.utils.data.DataLoader(testing_data, batch_size=1, shuffle=True, num_workers=2)
+
 
 	# customize your CNN here
 	model_path = 'model'
