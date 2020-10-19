@@ -129,17 +129,21 @@ class CNN(nn.Module):
 			for batch in training_loader:
 				self.optimizer.zero_grad() # don't forget to zero the gradient buffers per batch !
 
-				choice = 'criterion against batch'
-				# randomly throw in black- and noise-tensors with torch.zeros output
-				if random.random() < 0.5:
+				choice = 'against batch tensor'
+				if random.random() < 0.6:
 					self.loss = self.criterion(self(batch), torch.ones(batch.size()[0]))
+				# randomly throw in black- and noise-tensors with torch.zeros output
 				else:
 					if random.random() < 0.5:
 						self.loss = self.criterion(self(black_image), torch.zeros(training_loader.batch_size))
-						choice = 'criterion against black tensor'	
+						choice = 'against black tensor'	
 					else:
+						# also update noise tensor from time to time
+						if random.random() < 0.3:
+							noise_image = torch.tensor([[[[random.randint(0, 255) for x in range(self.im_size)] for y in range(self.im_size)]] for b in range(training_loader.batch_size)]).float()
+	
 						self.loss = self.criterion(self(noise_image), torch.zeros(training_loader.batch_size))
-						choice = 'criterion against noise tensor'
+						choice = 'against noise tensor'
 
 				# debugging loss
 				if cycle % 10 == 9:
@@ -178,11 +182,11 @@ def main():
 	logging.basicConfig(level=log_level)
 
 	# customize your datasource here
-	dogs = '/home/muesli/Downloads/dogscats/dogs'
+	dogs = '/home/kashim/Downloads/dogsncats/dogs'
 	image_size = 255       # resize and (black-border)-pad images to shape 255x255
 	data_ratio = 0.1       # only use the first 1% of the dataset
 	train_test_ratio = 0.6 # this would result in a 90:10 training:testing split
-	batch_size = 16        # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	batch_size = 32        # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
 
 	# split data into training:testing datasets
@@ -199,7 +203,7 @@ def main():
 	# customize your CNN here
 	model_path = 'model'
 	training_cycles = 1000
-	learning_rate = 0.00000001
+	learning_rate = 0.000001
 
 
 	# create a CNN
