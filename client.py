@@ -1,8 +1,4 @@
-""" image classifier. 
-helpful links:
-- https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
-
-"""
+""" image classifier client. """
 
 import os, sys
 
@@ -20,19 +16,24 @@ from ml import CNN
 def main():
 
 	# customize your datasource here
-	dogs = '/home/kashim/Downloads/dogsncats/dogs'
+	dogs = '/home/muesli/Downloads/dogscats/dogs'
 
 	# customize your CNN here
-	model_path = '/home/kashim/Documents/github/supermuesli/dogdetector/model.pth'
+	model_path = 'model.asd'
 
 	# create a CNN
-	net = CNN('cpu', 115)
+	net = CNN()
 	# load an existing model if possible
 	
 	net.load(model_path)
 
-	sample = transforms.Compose([transforms.ToTensor()])(Image.open(dogs + '/12472.jpg').convert('L'))
-	net(sample)
+	# works with list of paths (more efficient with batches)
+	sample = net.transform([(dogs + '/%d.jpg' % i) for i in range(100)])
+	print(net(sample))
+
+	# works with a single path
+	sample = net.transform(dogs + '/3.jpg')
+	print(net(sample))
 
 if __name__ == '__main__':
 	main()

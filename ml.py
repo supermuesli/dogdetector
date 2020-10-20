@@ -1,8 +1,4 @@
-""" image classifier. 
-helpful links:
-- https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
-
-"""
+""" universal grayscale image classifier. see https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html """
 
 import os, logging, random, sys
 
@@ -74,7 +70,7 @@ class ImageGrayScale(Dataset):
 class CNN(nn.Module):
 	""" Convolutional Neural Network for classification of grayscale images. """
 
-	def __init__(self, device, im_size=100, lr=0.01):
+	def __init__(self, device='cpu', im_size=100, lr=0.01):
 		super(CNN, self).__init__()
 		
 		self.im_size = im_size
@@ -107,9 +103,7 @@ class CNN(nn.Module):
 		x = self.pool(F.relu(self.conv2(x)))
 		x = x.view(-1, self.fc1.in_features) # flatten the self.conv2 convolution layer. 
 		x = F.relu(self.fc1(x))
-
 		x = F.relu(self.fc2(x))
-		
 		x = F.relu(self.fc3(x)) 
 		x = x.squeeze(-1)          # squeeze output into batch_dim
 
@@ -119,13 +113,69 @@ class CNN(nn.Module):
 		return x
 
 	def save(self, path):
-		torch.save(self.state_dict(), path)
+		""" Save the CNN model as an altered state dict (.asd). """
+
+		# manually add self.im_size to state_dict so we can restore it when loading the model again
+		sd = self.state_dict()
+		sd['im_size'] = self.im_size
+	
+		torch.save(sd, path + '.asd')
 
 	def load(self, path):
-		self.load_state_dict(torch.load(path))
+		sd = torch.load(path)
+		
+		# load non-conventional attributes from altered state dict (if they exist)
+		try:
+			self.im_size = sd['im_size']
+			del sd['im_size']
+		
+			self.__init__(im_size=self.im_size)
+		except KeyError as e:
+			logging.critical(e)
+		# load conventional state dict
+		
+		self.load_state_dict(sd)
+		
 		self.eval()
 
-	def learn(self, cycles, training_loader):
+	def im_transform(self, path):
+		""" Resize and pad image to self.im_size. """
+
+		sample = Image.open(path).convert('L')
+
+		# apply square padding (black) if aspect ratio is not 1:1
+		if sample.size[0] != self.im_size or sample.size[1] != self.im_size:
+			sample.thumbnail((self.im_size, self.im_size), Image.ANTIALIAS)
+			
+			# edge case where thumbnail cannot guarantee exact dimensions
+			if sample.size[0] != self.im_size or sample.size[1] != self.im_size:
+				sample = sample.resize((self.im_size, self.im_size), Image.ANTIALIAS)
+			else:	
+				padded_sample = Image.new("L", (self.im_size, self.im_size))
+				padded_sample.paste(sample, ((self.im_size-sample.size[0])//2, (self.im_size-sample.size[1])//2))
+				sample = padded_sample
+
+		return sample
+
+	def transform(self, path):
+		""" Transform a sample input so it fits through the network topology. """
+
+		# a list of paths was given
+		if type(path) == list:
+			batch = transforms.ToTensor()(self.im_transform(path[0])).unsqueeze(0)
+			for i, p in enumerate(path):
+				if i > 0:
+					# see https://discuss.pytorch.org/t/concatenate-torch-tensor-along-given-dimension/2304
+					batch = torch.cat((batch, transforms.ToTensor()(self.im_transform(p)).unsqueeze(0)), 0)
+		# a single path was given
+		else:
+			# add batch_dim (1)
+		 	# see https://stackoverflow.com/questions/57237352/what-does-unsqueeze-do-in-pytorch
+			return transforms.ToTensor()(self.im_transform(path)).unsqueeze(0)  
+
+		return batch
+
+	def fit(self, cycles, training_loader):
 		""" Train the CNN for the given number of cycles on the given training dataset. 
 			
 		Args:
@@ -142,21 +192,21 @@ class CNN(nn.Module):
 			for batch in training_loader:
 				self.optimizer.zero_grad() # don't forget to zero the gradient buffers per batch !
 
-				choice = 'against batch tensor'
+				choice = 'against batch'
 				if random.random() < 0.6:
 					self.loss = self.criterion(self(batch), torch.ones(batch.size()[0]))
 				# randomly throw in black- and noise-tensors with torch.zeros output
 				else:
 					if random.random() < 0.5:
 						self.loss = self.criterion(self(black_image), torch.zeros(training_loader.batch_size))
-						choice = 'against black tensor'	
+						choice = 'against black'	
 					else:
 						# also update noise tensor from time to time
 						if random.random() < 0.5:
 							noise_image = torch.tensor([[[[random.random() for x in range(self.im_size)] for y in range(self.im_size)]] for b in range(training_loader.batch_size)]).float()
 	
 						self.loss = self.criterion(self(noise_image), torch.zeros(training_loader.batch_size))
-						choice = 'against noise tensor'
+						choice = 'against noise'
 
 				# debugging loss
 				if cycle % 10 == 9:
@@ -202,10 +252,10 @@ def main():
 	device = torch.device(dev) 
 
 	# customize your datasource here
-	dogs = '/home/kashim/Downloads/dogsncats/dogs'
+	dogs = '/home/muesli/Downloads/dogscats/dogs'
 	image_size = 115       # resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 0.1       # only use the first 1% of the dataset
-	train_test_ratio = 0.6 # this would result in a 90:10 training:testing split
+	data_ratio = 0.01      # only use the first 1% of the dataset
+	train_test_ratio = 0.3 # this would result in a 30:70 training:testing split
 	batch_size = 16        # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
 
@@ -221,8 +271,8 @@ def main():
 
 
 	# customize your CNN here
-	model_path = '/home/kashim/Documents/github/supermuesli/dogdetector/model.pth'
-	training_cycles = 1000
+	model_path = 'model.asd'
+	training_cycles = 10
 	learning_rate = 0.1
 
 
@@ -234,7 +284,7 @@ def main():
 	net.load(model_path)
 
 	# train the model
-	net.learn(training_cycles, training_loader)
+	net.fit(training_cycles, training_loader)
 
 	# test the model accuracy
 	#net.test(testing_loader)
