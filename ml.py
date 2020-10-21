@@ -4,7 +4,7 @@ helpful links:
 
 """
 
-import os, logging, random
+import os, logging, random, sys
 
 import torch
 import torch.nn as nn
@@ -74,16 +74,24 @@ class ImageGrayScale(Dataset):
 class CNN(nn.Module):
 	""" Convolutional Neural Network for classification of grayscale images. """
 
-	def __init__(self, im_size=100, lr=0.01):
+	def __init__(self, device, im_size=100, lr=0.01):
 		super(CNN, self).__init__()
 		
 		self.im_size = im_size
 
 		# network topology
-		self.conv1 = nn.Conv2d(1, 6, 5)
-		self.pool = nn.MaxPool2d(2, 2)
-		self.conv2 = nn.Conv2d(6, 16, 5)
-		self.fc1 = nn.Linear(16 * 60*60, 120)
+		kernel_size = 5	
+		pool_size = 2
+		out_dim = 6
+		self.conv1 = nn.Conv2d(1, out_dim, kernel_size)
+		self.pool = nn.MaxPool2d(pool_size, pool_size)
+		
+		in_dim = out_dim
+		out_dim = 16
+		self.conv2 = nn.Conv2d(in_dim, out_dim, kernel_size)
+		self.fc1 = nn.Linear(out_dim * ((((im_size - kernel_size) // pool_size) - kernel_size) // pool_size)**2, 120) # consider the forward function as to why this input dimension was chosen, also read here:
+		                                                                                                              # https://stackoverflow.com/questions/53784998/how-are-the-pytorch-dimensions-for-linear-layers-calculated
+		
 		self.fc2 = nn.Linear(120, 84)
 		self.fc3 = nn.Linear(84, 1)
 
@@ -91,17 +99,22 @@ class CNN(nn.Module):
 		self.optimizer = optim.SGD(self.parameters(), lr=lr)
 		self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min')
 
+		self.device = device
+		self.to(self.device)
+
 	def forward(self, x):
 		x = self.pool(F.relu(self.conv1(x)))
-		#x.register_hook(lambda t: logging.info(t.size())) # tensor debugging	
 		x = self.pool(F.relu(self.conv2(x)))
-		x = x.view(-1, 16 * 60*60) # flatten the self.conv2 convolution layer. i have no idea why 60*60, though
+		x = x.view(-1, self.fc1.in_features) # flatten the self.conv2 convolution layer. 
 		x = F.relu(self.fc1(x))
+
 		x = F.relu(self.fc2(x))
+		
 		x = F.relu(self.fc3(x)) 
 		x = x.squeeze(-1)          # squeeze output into batch_dim
 
-		# squash value to interval [0, 1]
+		# squash value to interval [0, 1]. this works thanks to relu
+		x = x / (x.max() + 1)
 
 		return x
 
@@ -112,7 +125,7 @@ class CNN(nn.Module):
 		self.load_state_dict(torch.load(path))
 		self.eval()
 
-	def train(self, cycles, training_loader):
+	def learn(self, cycles, training_loader):
 		""" Train the CNN for the given number of cycles on the given training dataset. 
 			
 		Args:
@@ -123,7 +136,7 @@ class CNN(nn.Module):
 		
 		# alternataive inputs
 		black_image = torch.tensor([[[[0 for x in range(self.im_size)] for y in range(self.im_size)]] for b in range(training_loader.batch_size)]).float()
-		noise_image = torch.tensor([[[[random.randint(0, 255) for x in range(self.im_size)] for y in range(self.im_size)]] for b in range(training_loader.batch_size)]).float()
+		noise_image = torch.tensor([[[[random.random() for x in range(self.im_size)] for y in range(self.im_size)]] for b in range(training_loader.batch_size)]).float()
 
 		for cycle in range(cycles):
 			for batch in training_loader:
@@ -139,8 +152,8 @@ class CNN(nn.Module):
 						choice = 'against black tensor'	
 					else:
 						# also update noise tensor from time to time
-						if random.random() < 0.3:
-							noise_image = torch.tensor([[[[random.randint(0, 255) for x in range(self.im_size)] for y in range(self.im_size)]] for b in range(training_loader.batch_size)]).float()
+						if random.random() < 0.5:
+							noise_image = torch.tensor([[[[random.random() for x in range(self.im_size)] for y in range(self.im_size)]] for b in range(training_loader.batch_size)]).float()
 	
 						self.loss = self.criterion(self(noise_image), torch.zeros(training_loader.batch_size))
 						choice = 'against noise tensor'
@@ -181,12 +194,19 @@ def main():
 	log_level = logging.INFO
 	logging.basicConfig(level=log_level)
 
+	# if CUDA available, use it
+	if torch.cuda.is_available():  
+		dev = 'cuda:0' 
+	else:  
+		dev = 'cpu'  
+	device = torch.device(dev) 
+
 	# customize your datasource here
 	dogs = '/home/kashim/Downloads/dogsncats/dogs'
-	image_size = 255       # resize and (black-border)-pad images to shape 255x255
+	image_size = 115       # resize and (black-border)-pad images to image_size x image_size
 	data_ratio = 0.1       # only use the first 1% of the dataset
 	train_test_ratio = 0.6 # this would result in a 90:10 training:testing split
-	batch_size = 32        # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	batch_size = 16        # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
 
 	# split data into training:testing datasets
@@ -201,22 +221,20 @@ def main():
 
 
 	# customize your CNN here
-	model_path = 'model'
+	model_path = '/home/kashim/Documents/github/supermuesli/dogdetector/model.pth'
 	training_cycles = 1000
-	learning_rate = 0.000001
+	learning_rate = 0.1
 
 
 	# create a CNN
-	net = CNN(image_size, lr=learning_rate)
+	net = CNN('cpu', image_size, lr=learning_rate)
 
 	# load an existing model if possible
-	try:
-		net.load(model_path)
-	except:
-		logging.warning("could not load model %s, initializing empty model instead" % model_path)
+	
+	net.load(model_path)
 
 	# train the model
-	net.train(training_cycles, training_loader)
+	net.learn(training_cycles, training_loader)
 
 	# test the model accuracy
 	#net.test(testing_loader)
