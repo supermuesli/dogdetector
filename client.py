@@ -16,7 +16,7 @@ from ml import CNN
 def main():
 
 	# customize your datasource here
-	dogs = '/home/muesli/Downloads/dogscats/dogs'
+	dogs = '/home/kashim/Downloads/dogsncats/dogs'
 
 	# customize your CNN here
 	model_path = 'model.asd'

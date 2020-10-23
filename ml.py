@@ -85,10 +85,10 @@ class CNN(nn.Module):
 		in_dim = out_dim
 		out_dim = 16
 		self.conv2 = nn.Conv2d(in_dim, out_dim, kernel_size)
-		self.fc1 = nn.Linear(out_dim * ((((im_size - kernel_size) // pool_size) - kernel_size) // pool_size)**2, 120) # consider the forward function as to why this input dimension was chosen, also read here:
+		self.fc1 = nn.Linear(out_dim * ((((im_size - kernel_size) // pool_size) - kernel_size) // pool_size)**2, 1200) # consider the forward function as to why this input dimension was chosen, also read here:
 		                                                                                                              # https://stackoverflow.com/questions/53784998/how-are-the-pytorch-dimensions-for-linear-layers-calculated
 		
-		self.fc2 = nn.Linear(120, 84)
+		self.fc2 = nn.Linear(1200, 84)
 		self.fc3 = nn.Linear(84, 1)
 
 		self.criterion = nn.MSELoss()
@@ -96,7 +96,7 @@ class CNN(nn.Module):
 		self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min')
 
 		self.device = device
-		self.to(self.device)
+		#self.to(self.device)
 
 	def forward(self, x):
 		x = self.pool(F.relu(self.conv1(x)))
@@ -109,7 +109,6 @@ class CNN(nn.Module):
 
 		# squash value to interval [0, 1]. this works thanks to relu
 		x = x / (x.max() + 1)
-
 		return x
 
 	def save(self, path):
@@ -184,29 +183,37 @@ class CNN(nn.Module):
 
 		"""
 		
-		# alternataive inputs
-		black_image = torch.tensor([[[[0 for x in range(self.im_size)] for y in range(self.im_size)]] for b in range(training_loader.batch_size)]).float()
-		noise_image = torch.tensor([[[[random.random() for x in range(self.im_size)] for y in range(self.im_size)]] for b in range(training_loader.batch_size)]).float()
-
 		for cycle in range(cycles):
 			for batch in training_loader:
 				self.optimizer.zero_grad() # don't forget to zero the gradient buffers per batch !
 
 				choice = 'against batch'
-				if random.random() < 0.6:
+				if False:
 					self.loss = self.criterion(self(batch), torch.ones(batch.size()[0]))
-				# randomly throw in black- and noise-tensors with torch.zeros output
+				
+				# randomly throw in black- and noise-tensors with 0 as output
 				else:
-					if random.random() < 0.5:
-						self.loss = self.criterion(self(black_image), torch.zeros(training_loader.batch_size))
-						choice = 'against black'	
-					else:
-						# also update noise tensor from time to time
-						if random.random() < 0.5:
-							noise_image = torch.tensor([[[[random.random() for x in range(self.im_size)] for y in range(self.im_size)]] for b in range(training_loader.batch_size)]).float()
-	
-						self.loss = self.criterion(self(noise_image), torch.zeros(training_loader.batch_size))
-						choice = 'against noise'
+					# outputs
+					target = torch.ones(batch.size()[0])
+					
+					for b in range(len(batch)):
+						
+						for color_channel in range(len(batch[b])):
+							
+							for row in range(len(batch[b][color_channel])):
+								
+								if random.random() < 0.5:
+
+									if random.random() < 0.5:
+										batch[b][color_channel][row] = torch.tensor([0 for i in range(self.im_size)])
+									else:
+										batch[b][color_channel][row] = torch.tensor([random.random() for i in range(self.im_size)])
+
+									# row changes, output changes to 0
+									target[b] = torch.tensor([0])
+
+					choice = 'against batch/black/noise'
+					self.loss = self.criterion(self(batch), target)
 
 				# debugging loss
 				if cycle % 10 == 9:
@@ -252,12 +259,13 @@ def main():
 	device = torch.device(dev) 
 
 	# customize your datasource here
-	dogs = '/home/muesli/Downloads/dogscats/dogs'
+	dogs = '/home/kashim/Downloads/dogsncats/dogs'
 	image_size = 115       # resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 0.01      # only use the first 1% of the dataset
-	train_test_ratio = 0.3 # this would result in a 30:70 training:testing split
-	batch_size = 16        # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	data_ratio = 0.5     # only use the first 1% of the dataset
+	train_test_ratio = 0.6 # this would result in a 30:70 training:testing split
+	#batch_size = 128        # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
+	batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 
 	# split data into training:testing datasets
 	training_data = data_total[:int(data_ratio*train_test_ratio*len(data_total))]
@@ -272,19 +280,19 @@ def main():
 
 	# customize your CNN here
 	model_path = 'model.asd'
-	training_cycles = 10
+	cycles = 100
 	learning_rate = 0.1
 
 
 	# create a CNN
-	net = CNN('cpu', image_size, lr=learning_rate)
+	net = CNN(im_size=image_size, lr=learning_rate)
 
 	# load an existing model if possible
 	
-	net.load(model_path)
+	#net.load(model_path)
 
 	# train the model
-	net.fit(training_cycles, training_loader)
+	net.fit(cycles, training_loader)
 
 	# test the model accuracy
 	#net.test(testing_loader)
