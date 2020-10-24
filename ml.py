@@ -10,7 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 from PIL import Image
 
-class ImageGrayScale(Dataset):
+class ImageGrayScale():
 	""" Load any dataset of images, but only their grayscale values. """
 
 	def __init__(self, root_dir, im_size=255, transform=transforms.Compose([transforms.ToTensor()])):
@@ -67,20 +67,38 @@ class ImageGrayScale(Dataset):
 
 		return None
 
-class DynamicBatchDataLoader(torch.utils.data.DataLoader):
+class DynamicBatchDataLoader():
 	def __init__(self, training_data, batch_size, shuffle):
-		super(DynamicBatchDataLoader, self).__init__(training_data, batch_size=batch_size, shuffle=shuffle, num_workers=1)
-		self.training_data_ = training_data
-		self.batch_size_ = batch_size
-		self.shuffle_ = shuffle
+		self.training_data = training_data
+		self.batch_size = batch_size
+		self.shuffle = shuffle
+		self.offset = 0
+		self.bs_factor = 2
+
+	def __len__(self):
+		return len(self.training_data)
+
+	def __getitem__(self, idx):
+		return self.training_data[idx]
+
+	def __iter__(self):
+		for i in range(self.offset, len(self), 1):
+			x = torch.tensor([])
+			
+			for b in range(self.batch_size):
+				x = torch.cat((x, self.training_data[i].unsqueeze(0)), 0)
+
+				self.offset += 1
+				if self.offset >= len(self):
+					self.offset = 0
+			
+			yield x
 
 	def step(self):
 		""" Increase batch_size, for instance per epoch. """
-		print("bs:",self.batch_size_)
-		print(self.__initialized)
-		self.__initialized = False
-		self.__init__(self.training_data_, 2*self.batch_size_, self.shuffle_)
-
+		if self.batch_size * self.bs_factor < len(self):
+			self.batch_size *= self.bs_factor
+		
 class CNN(nn.Module):
 	""" Convolutional Neural Network for classification of grayscale images. """
 
@@ -215,21 +233,21 @@ class CNN(nn.Module):
 				# outputs
 				target = torch.ones(batch.size()[0])
 				
-				for i in range(len(batch)):
+				for b in range(len(batch)):
 					if random.random() < 0.7:
-						for color_channel in range(len(batch[i])):
+						for color_channel in range(len(batch[b])):
 							
-							for row in range(len(batch[i][color_channel])):
+							for row in range(len(batch[b][color_channel])):
 						
 								if random.random() < 0.5:
 									# black 
-									batch[i][color_channel][row] = torch.tensor([0 for i in range(self.im_size)])
+									batch[b][color_channel][row] = torch.tensor([0 for j in range(self.im_size)])
 								else:
 									# noise
-									batch[i][color_channel][row] = torch.tensor([random.random() for i in range(self.im_size)])
+									batch[b][color_channel][row] = torch.tensor([random.random() for j in range(self.im_size)])
 
 								# row changes, output changes to 0
-								target[i] = torch.tensor([0])
+								target[b] = torch.tensor([0])
 				
 				choice = 'against batch/black/noise'
 				self.loss = self.criterion(self(batch), target)
@@ -284,9 +302,9 @@ def main():
 	device = torch.device(dev) 
 
 	# customize your datasource here
-	dogs = '/home/kashim/Downloads/dogsncats/dogs'
+	dogs = '/home/muesli/Downloads/dogsncats/dogs'
 	image_size = 115       # resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 0.1       # only use the first data_ratio*100% of the dataset
+	data_ratio = 0.01       # only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
 	batch_size = 1         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
