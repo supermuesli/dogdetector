@@ -18,6 +18,8 @@ def main():
 	# customize your datasource here
 	dogs = '/home/kashim/Downloads/dogsncats/dogs'
 
+	cats = '/home/kashim/Downloads/dogsncats/cats'
+
 	# customize your CNN here
 	model_path = 'model.asd'
 
@@ -27,13 +29,17 @@ def main():
 	
 	net.load(model_path)
 
-	# works with list of paths (more efficient with batches)
-	sample = net.transform([(dogs + '/%d.jpg' % i) for i in range(100)])
-	print(net(sample))
-
 	# works with a single path
 	sample = net.transform(dogs + '/3.jpg')
-	print(net(sample))
+	print(net(sample).mean())
+	
+	# works with list of paths (more efficient with batches)
+	sample = net.transform([(dogs + '/%d.jpg' % i) for i in range(665)])
+	print(net(sample).mean())
+
+
+	sample = net.transform([(cats + '/%d.jpg' % i) for i in range(665)])
+	print(net(sample).mean())
 
 if __name__ == '__main__':
 	main()

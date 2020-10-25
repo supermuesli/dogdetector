@@ -187,8 +187,8 @@ class CNN(nn.Module):
 			for batch in training_loader:
 				self.optimizer.zero_grad() # don't forget to zero the gradient buffers per batch !
 
-				choice = 'against batch'
 				if False:
+					choice = 'against batch'
 					self.loss = self.criterion(self(batch), torch.ones(batch.size()[0]))
 				
 				# randomly throw in black- and noise-tensors with 0 as output
@@ -196,21 +196,19 @@ class CNN(nn.Module):
 					# outputs
 					target = torch.ones(batch.size()[0])
 					
-					for b in range(len(batch)):
-						
-						for color_channel in range(len(batch[b])):
-							
-							for row in range(len(batch[b][color_channel])):
+					for i in range(len(batch)):
+						if random.random() < 0.5:
+							for color_channel in range(len(batch[i])):
 								
-								if random.random() < 0.5:
-
+								for row in range(len(batch[i][color_channel])):
+							
 									if random.random() < 0.5:
-										batch[b][color_channel][row] = torch.tensor([0 for i in range(self.im_size)])
+										batch[i][color_channel][row] = torch.tensor([0 for i in range(self.im_size)])
 									else:
-										batch[b][color_channel][row] = torch.tensor([random.random() for i in range(self.im_size)])
+										batch[i][color_channel][row] = torch.tensor([random.random() for i in range(self.im_size)])
 
 									# row changes, output changes to 0
-									target[b] = torch.tensor([0])
+									target[i] = torch.tensor([0])
 
 					choice = 'against batch/black/noise'
 					self.loss = self.criterion(self(batch), target)
@@ -263,9 +261,9 @@ def main():
 	image_size = 115       # resize and (black-border)-pad images to image_size x image_size
 	data_ratio = 0.5     # only use the first 1% of the dataset
 	train_test_ratio = 0.6 # this would result in a 30:70 training:testing split
-	#batch_size = 128        # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	batch_size = 128        # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
-	batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	#batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 
 	# split data into training:testing datasets
 	training_data = data_total[:int(data_ratio*train_test_ratio*len(data_total))]
@@ -289,7 +287,7 @@ def main():
 
 	# load an existing model if possible
 	
-	#net.load(model_path)
+	net.load(model_path)
 
 	# train the model
 	net.fit(cycles, training_loader)
