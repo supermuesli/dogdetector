@@ -94,8 +94,7 @@ class CNN(nn.Module):
 		self.criterion = nn.MSELoss()
 		self.optimizer = optim.SGD(self.parameters(), lr=lr)
 
-		# https://pytorch.org/docs/stable/optim.html#torch.optim.lr_scheduler.ReduceLROnPlateau
-		self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min')
+		self.scheduler = optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=lr/100, max_lr=lr*100)
 
 		self.device = device
 		#self.to(self.device)
@@ -107,9 +106,9 @@ class CNN(nn.Module):
 		x = self.fc1(x)
 		x = self.fc2(x)
 		x = self.fc3(x) 
-		x = x.squeeze(-1)          # squeeze output into batch_dim
+		x = x.squeeze(-1)                    # squeeze output into batch_dim
 
-		# squash value to interval [0, 1]. this works thanks to relu
+		# squash value to interval [0, 1].
 		min_val = abs(x.min())
 		max_val = x.max() + min_val
 		if max_val == 0:
@@ -226,10 +225,7 @@ class CNN(nn.Module):
 				
 				self.loss.backward()  # backward propagate loss
 				self.optimizer.step() # update the parameters
-				self.scheduler.step(self.loss)        # adaptive learning rate: if loss doesn't decrease significantly
-				                                      # then the learning rate will be decreased
-				                                      # read here:
-				                                      # https://github.com/pytorch/pytorch/pull/1370/commits/9f48a2cccb238aea13e2f170e60d48430e2b2aee
+				self.scheduler.step() # dynamic learning rate
 
 				# cycle is finished at this point
 				if save_per_cycle:
@@ -293,15 +289,15 @@ def main():
 
 	# customize your CNN here
 	model_path = 'model.asd'
-	cycles = 1000
-	learning_rate = 0.1
+	cycles = 10000
+	learning_rate = 0.01
 	save_per_cycle = True
 
 	# create a CNN
 	net = CNN(im_size=image_size, lr=learning_rate)
 
 	# load an existing model if possible
-	#net.load(model_path)
+	 net.load(model_path)
 
 	# train the model
 	net.fit(cycles, training_loader, save_per_cycle=save_per_cycle)
