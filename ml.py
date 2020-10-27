@@ -67,6 +67,20 @@ class ImageGrayScale(Dataset):
 
 		return None
 
+class DynamicBatchDataLoader(torch.utils.data.DataLoader):
+	def __init__(self, training_data, batch_size, shuffle):
+		super(DynamicBatchDataLoader, self).__init__(training_data, batch_size=batch_size, shuffle=shuffle, num_workers=1)
+		self.training_data_ = training_data
+		self.batch_size_ = batch_size
+		self.shuffle_ = shuffle
+
+	def step(self):
+		""" Increase batch_size, for instance per epoch. """
+		print("bs:",self.batch_size_)
+		print(self.__initialized)
+		self.__initialized = False
+		self.__init__(self.training_data_, 2*self.batch_size_, self.shuffle_)
+
 class CNN(nn.Module):
 	""" Convolutional Neural Network for classification of grayscale images. """
 
@@ -85,15 +99,16 @@ class CNN(nn.Module):
 		in_dim = out_dim
 		out_dim = 16
 		self.conv2 = nn.Conv2d(in_dim, out_dim, kernel_size)
-		self.fc1 = nn.Linear(out_dim * ((((im_size - kernel_size) // pool_size) - kernel_size) // pool_size)**2, 1200) # consider the forward function as to why this input dimension was chosen, also read here:
+		self.fc1 = nn.Linear(out_dim * ((((im_size - kernel_size) // pool_size) - kernel_size) // pool_size)**2, 1200) # consider self.forward as to why this input dimension was chosen, also read here:
 		                                                                                                               # https://stackoverflow.com/questions/53784998/how-are-the-pytorch-dimensions-for-linear-layers-calculated
 		
 		self.fc2 = nn.Linear(1200, 84)
 		self.fc3 = nn.Linear(84, 1)
 
 		self.criterion = nn.MSELoss()
-		self.optimizer = optim.SGD(self.parameters(), lr=lr)
 
+		# read https://openreview.net/pdf?id=B1Yy1BxCZ
+		self.optimizer = optim.SGD(self.parameters(), lr=lr, momentum=0.9)
 		self.scheduler = optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=lr/100, max_lr=lr*100)
 
 		self.device = device
@@ -223,10 +238,11 @@ class CNN(nn.Module):
 				if cycle % 10 == 9:
 					logging.info('batch loss: %f\t%s\tcycle: %d' % (self.loss, choice, cycle))
 				
-				self.loss.backward()  # backward propagate loss
-				self.optimizer.step() # update the parameters
-				self.scheduler.step() # dynamic learning rate
-
+				self.loss.backward()   # backward propagate loss
+				self.optimizer.step()  # update the parameters
+				self.scheduler.step()  # dynamic learning rate
+				training_loader.step() # dynamic batch size
+				
 				# cycle is finished at this point
 				if save_per_cycle:
 					self.save('model')
@@ -270,9 +286,9 @@ def main():
 	# customize your datasource here
 	dogs = '/home/kashim/Downloads/dogsncats/dogs'
 	image_size = 115       # resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 1.0       # only use the first 100% of the dataset
-	train_test_ratio = 0.6 # this would result in a 60:40 training:testing split
-	batch_size = 32        # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	data_ratio = 0.1       # only use the first data_ratio*100% of the dataset
+	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
+	batch_size = 1         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
 	#batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 
@@ -283,21 +299,21 @@ def main():
 	#testing-data = data_total[10:20]
 
 	# data loaders (sexy iterators)
-	training_loader = torch.utils.data.DataLoader(training_data, batch_size=batch_size, shuffle=True, num_workers=2)
-	#testing_loader = torch.utils.data.DataLoader(testing_data, batch_size=1, shuffle=True, num_workers=2)
+	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, shuffle=True)
+	#testing_loader = torch.utils.data.DataLoader(testing_data, batch_size=1, shuffle=True)
 
 
 	# customize your CNN here
 	model_path = 'model.asd'
-	cycles = 10000
-	learning_rate = 0.01
+	cycles = 100
+	learning_rate = 1
 	save_per_cycle = True
 
 	# create a CNN
 	net = CNN(im_size=image_size, lr=learning_rate)
 
 	# load an existing model if possible
-	 net.load(model_path)
+	#net.load(model_path)
 
 	# train the model
 	net.fit(cycles, training_loader, save_per_cycle=save_per_cycle)

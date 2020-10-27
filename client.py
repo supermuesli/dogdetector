@@ -31,6 +31,7 @@ def main():
 
 	if sys.argv[1:] != []:
 		# works with a single path
+		print(sys.argv[1:])
 		sample = net.transform(sys.argv[1:])
 		print(net(sample).mean())
 	else:
