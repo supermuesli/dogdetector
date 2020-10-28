@@ -58,6 +58,9 @@ class ImageGrayScale():
 					padded_sample.paste(sample, ((self.im_size-sample.size[0])//2, (self.im_size-sample.size[1])//2))
 					sample = padded_sample
 
+					# debugging
+					# sample.show()
+
 			if self.transform:
 				sample = self.transform(sample)
 
@@ -73,7 +76,8 @@ class DynamicBatchDataLoader():
 		self.batch_size = batch_size
 		self.shuffle = shuffle
 		self.offset = 0
-		self.bs_factor = 2
+		self.bs_factor = 1.05
+		self.bs_value = batch_size
 
 	def __len__(self):
 		return len(self.training_data)
@@ -96,8 +100,11 @@ class DynamicBatchDataLoader():
 
 	def step(self):
 		""" Increase batch_size, for instance per epoch. """
-		if self.batch_size * self.bs_factor < len(self):
-			self.batch_size *= self.bs_factor
+		if self.bs_value * self.bs_factor < len(self):
+			self.bs_value *= self.bs_factor
+			self.batch_size = int(self.bs_value)
+
+		print(self.batch_size)
 		
 class CNN(nn.Module):
 	""" Convolutional Neural Network for classification of grayscale images. """
@@ -302,9 +309,9 @@ def main():
 	device = torch.device(dev) 
 
 	# customize your datasource here
-	dogs = '/home/muesli/Downloads/dogsncats/dogs'
+	dogs = 'D:\\dogsncats\\dogs'
 	image_size = 115       # resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 0.01       # only use the first data_ratio*100% of the dataset
+	data_ratio = 0.5       # only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
 	batch_size = 1         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
@@ -331,7 +338,7 @@ def main():
 	net = CNN(im_size=image_size, lr=learning_rate)
 
 	# load an existing model if possible
-	#net.load(model_path)
+	net.load(model_path)
 
 	# train the model
 	net.fit(cycles, training_loader, save_per_cycle=save_per_cycle)
