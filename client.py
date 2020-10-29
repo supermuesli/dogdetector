@@ -16,9 +16,9 @@ from ml import CNN
 def main():
 
 	# customize your datasource here
-	dogs = 'D:\\dogsncats\\dogs'
+	dogs = sys.argv[1:]
 
-	cats = 'D:\\dogsncats\\cats'
+	cats = sys.argv[1:]
 
 	# customize your CNN here
 	model_path = 'model.asd'

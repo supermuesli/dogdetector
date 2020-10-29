@@ -104,7 +104,6 @@ class DynamicBatchDataLoader():
 			self.bs_value *= self.bs_factor
 			self.batch_size = int(self.bs_value)
 
-		print(self.batch_size)
 		
 class CNN(nn.Module):
 	""" Convolutional Neural Network for classification of grayscale images. """
@@ -261,7 +260,7 @@ class CNN(nn.Module):
 
 				# debugging loss
 				if cycle % 10 == 9:
-					logging.info('batch loss: %f\t%s\tcycle: %d' % (self.loss, choice, cycle))
+					logging.info('batch loss@size: %f@%d\t%s\tcycle: %d' % (self.loss, batch.size()[0], choice, cycle))
 				
 				self.loss.backward()   # backward propagate loss
 				self.optimizer.step()  # update the parameters
@@ -309,9 +308,9 @@ def main():
 	device = torch.device(dev) 
 
 	# customize your datasource here
-	dogs = 'D:\\dogsncats\\dogs'
+	dogs = sys.argv[1]    # TODO: use doc_opt instead of sys.argv
 	image_size = 115       # resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 0.5       # only use the first data_ratio*100% of the dataset
+	data_ratio = 1       # only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
 	batch_size = 1         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
@@ -330,7 +329,7 @@ def main():
 
 	# customize your CNN here
 	model_path = 'model.asd'
-	cycles = 100
+	cycles = 10000
 	learning_rate = 1
 	save_per_cycle = True
 
