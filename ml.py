@@ -13,7 +13,7 @@ from PIL import Image
 class ImageGrayScale():
 	""" Load any dataset of images, but only their grayscale values. """
 
-	def __init__(self, root_dir, im_size=255, transform=transforms.Compose([transforms.ToTensor()])):
+	def __init__(self, root_dir, im_size=255, transform=transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])):
 		"""
 		Args:
 			root_dir (string)             : Directory with all the images of one specific class.
@@ -72,7 +72,11 @@ class ImageGrayScale():
 
 class DynamicBatchDataLoader():
 	def __init__(self, training_data, batch_size, shuffle):
+		
 		self.training_data = training_data
+		if shuffle: 
+			random.shuffle(self.training_data)
+
 		self.batch_size = batch_size
 		self.shuffle = shuffle
 		self.offset = 0
@@ -130,11 +134,11 @@ class CNN(nn.Module):
 		in_dim = out_dim
 		out_dim = 16
 		self.conv2 = nn.Conv2d(in_dim, out_dim, kernel_size)
-		self.fc1 = nn.Linear(out_dim * ((((im_size - kernel_size) // pool_size) - kernel_size) // pool_size)**2, 1200) # consider self.forward as to why this input dimension was chosen, also read here:
-		                                                                                                               # https://stackoverflow.com/questions/53784998/how-are-the-pytorch-dimensions-for-linear-layers-calculated
+		self.fc1 = nn.Linear(out_dim * ((((im_size - kernel_size) // pool_size) - kernel_size) // pool_size)**2, 128) # consider self.forward as to why this input dimension was chosen, also read here:
+		                                                                                                             # https://stackoverflow.com/questions/53784998/how-are-the-pytorch-dimensions-for-linear-layers-calculated
 		
-		self.fc2 = nn.Linear(1200, 84)
-		self.fc3 = nn.Linear(84, 1)
+		self.fc2 = nn.Linear(128, 16)
+		self.fc3 = nn.Linear(16, 2)
 
 		self.criterion = nn.BCELoss()
 
@@ -149,18 +153,11 @@ class CNN(nn.Module):
 		x = self.pool(F.relu(self.conv1(x)))
 		x = self.pool(F.relu(self.conv2(x)))
 		x = x.view(-1, self.fc1.in_features) # flatten the self.conv2 convolution layer. 
-		x = self.fc1(x)
-		x = self.fc2(x)
-		x = self.fc3(x) 
+		x = F.relu(self.fc1(x))
+		x = F.relu(self.fc2(x))
+		x = F.softmax(self.fc3(x))  
 		x = x.squeeze(-1)                    # squeeze output into batch_dim
-
-		# squash value to interval [0, 1].
-		min_val = abs(x.min())
-		max_val = x.max() + min_val
-		if max_val == 0:
-			max_val = 1
-		x = (x + min_val)/ max_val
-
+		
 		return x
 
 	def save(self, path):
@@ -170,7 +167,7 @@ class CNN(nn.Module):
 		sd = self.state_dict()
 		sd['im_size'] = self.im_size
 	
-		logging.warning('writing model into %s, do not kill this process or %s will be corrupted!' % (path, path))
+		logging.warning('writing model into %s.asd, do not kill this process or %s.asd will be corrupted!' % (path, path))
 		torch.save(sd, path + '.asd')
 		logging.warning('done writing.')
 		
@@ -246,7 +243,7 @@ class CNN(nn.Module):
 				self.optimizer.zero_grad() # don't forget to zero the gradient buffers per batch !
 
 				# outputs
-				target = torch.ones(batch.size()[0])
+				target = torch.tensor([[0, 1] for b in range(batch.size()[0])]) # class 1 is a dog
 				
 				for b in range(len(batch)):
 					if random.random() < 0.5:
@@ -263,15 +260,18 @@ class CNN(nn.Module):
 									# noise
 									batch[b][color_channel][row] = torch.tensor([random.random() for j in range(self.im_size)])
 
-						# row changes, so output changes to 0
-						target[b] = torch.tensor([0])
+						# image changes, so output changes to 0
+						target[b] = torch.tensor([1, 0]) # class 0 is not a dog
 
 					# tensor debugging (what are you really feeding into the neural network?). uncomment the next line if not needed.
-					#transforms.ToPILImage()(batch[b]).show() 
+					#if cycle < 20: transforms.ToPILImage()(batch[b]).show()
 
+
+				# this is purely for logging
 				choice = 'against batch/black/noise'
-				self.loss = self.criterion(self(batch), target)
-
+				
+				self.loss = self.criterion(self(batch), target.float())
+			
 				# debugging loss
 				if cycle % 10 == 9:
 					logging.info('batch loss@size: %f@%d\t%s\tcycle: %d' % (self.loss, batch.size()[0], choice, cycle))
@@ -324,7 +324,7 @@ def main():
 	# customize your datasource here
 	dogs = sys.argv[1]     # TODO: use doc_opt instead of sys.argv
 	image_size = 35        # resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 1         # only use the first data_ratio*100% of the dataset
+	data_ratio = 0.1         # only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
 	batch_size = 1         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
@@ -343,8 +343,8 @@ def main():
 
 	# customize your CNN here
 	model_path = 'model.asd'
-	cycles = 10000
-	learning_rate = 0.000000000000001
+	cycles = 100000
+	learning_rate = 0.01
 	save_per_cycle = 100
 
 	# create a CNN
