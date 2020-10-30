@@ -86,17 +86,24 @@ class DynamicBatchDataLoader():
 		return self.training_data[idx]
 
 	def __iter__(self):
-		for i in range(self.offset, len(self), 1):
+		for b in range(self.batch_size):
 			x = torch.tensor([])
 			
-			for b in range(self.batch_size):
+			upper_limit = self.offset + self.batch_size
+			
+			# meh, this way we don't utilize some of our data, but it's a quick solution
+			if upper_limit > len(self):
+				self.offset = 0
+				upper_limit = self.batch_size
+
+			for i in range(self.offset, upper_limit, 1):	
 				x = torch.cat((x, self.training_data[i].unsqueeze(0)), 0)
 
 				self.offset += 1
 				if self.offset >= len(self):
 					self.offset = 0
 			
-			yield x
+				yield x
 
 	def step(self):
 		""" Increase batch_size, for instance per epoch. """
@@ -129,7 +136,7 @@ class CNN(nn.Module):
 		self.fc2 = nn.Linear(1200, 84)
 		self.fc3 = nn.Linear(84, 1)
 
-		self.criterion = nn.MSELoss()
+		self.criterion = nn.BCELoss()
 
 		# read https://openreview.net/pdf?id=B1Yy1BxCZ
 		self.optimizer = optim.SGD(self.parameters(), lr=lr, momentum=0.9)
@@ -163,7 +170,9 @@ class CNN(nn.Module):
 		sd = self.state_dict()
 		sd['im_size'] = self.im_size
 	
+		logging.warning('writing model into %s, do not kill this process or %s will be corrupted!' % (path, path))
 		torch.save(sd, path + '.asd')
+		logging.warning('done writing.')
 		
 	def load(self, path):
 		sd = torch.load(path)
@@ -240,21 +249,26 @@ class CNN(nn.Module):
 				target = torch.ones(batch.size()[0])
 				
 				for b in range(len(batch)):
-					if random.random() < 0.7:
-						for color_channel in range(len(batch[b])):
-							
-							for row in range(len(batch[b][color_channel])):
+					if random.random() < 0.5:
 						
-								if random.random() < 0.5:
+						if random.random() < 0.5:
+							for color_channel in range(len(batch[b])):
+								for row in range(len(batch[b][color_channel])):
 									# black 
 									batch[b][color_channel][row] = torch.tensor([0 for j in range(self.im_size)])
-								else:
+						
+						else:
+							for color_channel in range(len(batch[b])):
+								for row in range(len(batch[b][color_channel])):	
 									# noise
 									batch[b][color_channel][row] = torch.tensor([random.random() for j in range(self.im_size)])
 
-								# row changes, output changes to 0
-								target[b] = torch.tensor([0])
-				
+						# row changes, so output changes to 0
+						target[b] = torch.tensor([0])
+
+					# tensor debugging (what are you really feeding into the neural network?). uncomment the next line if not needed.
+					#transforms.ToPILImage()(batch[b]).show() 
+
 				choice = 'against batch/black/noise'
 				self.loss = self.criterion(self(batch), target)
 
@@ -268,7 +282,7 @@ class CNN(nn.Module):
 				training_loader.step() # dynamic batch size
 				
 				# cycle is finished at this point
-				if save_per_cycle:
+				if cycle % save_per_cycle == save_per_cycle - 1:
 					self.save('model')
 
 				cycle += 1
@@ -308,9 +322,9 @@ def main():
 	device = torch.device(dev) 
 
 	# customize your datasource here
-	dogs = sys.argv[1]    # TODO: use doc_opt instead of sys.argv
-	image_size = 115       # resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 1       # only use the first data_ratio*100% of the dataset
+	dogs = sys.argv[1]     # TODO: use doc_opt instead of sys.argv
+	image_size = 35        # resize and (black-border)-pad images to image_size x image_size
+	data_ratio = 1         # only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
 	batch_size = 1         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
@@ -330,14 +344,14 @@ def main():
 	# customize your CNN here
 	model_path = 'model.asd'
 	cycles = 10000
-	learning_rate = 1
-	save_per_cycle = True
+	learning_rate = 0.000000000000001
+	save_per_cycle = 100
 
 	# create a CNN
 	net = CNN(im_size=image_size, lr=learning_rate)
 
 	# load an existing model if possible
-	net.load(model_path)
+	#net.load(model_path)
 
 	# train the model
 	net.fit(cycles, training_loader, save_per_cycle=save_per_cycle)

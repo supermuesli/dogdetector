@@ -16,9 +16,7 @@ from ml import CNN
 def main():
 
 	# customize your datasource here
-	dogs = sys.argv[1:]
-
-	cats = sys.argv[1:]
+	dogs = '~/Downloads/dogsncats/dogs/1.jpg'
 
 	# customize your CNN here
 	model_path = 'model.asd'
@@ -29,19 +27,20 @@ def main():
 	# load an existing model if possible
 	net.load(model_path)
 
-	if sys.argv[1:] != []:
+	if False:
 		# works with a single path
-		print(sys.argv[1:])
-		sample = net.transform(sys.argv[1:])
+		sample = net.transform(dogs)
 		print(net(sample).mean())
 	else:
-		# works with list of paths (more efficient with batches)
-		sample = net.transform([(dogs + '/%d.jpg' % i) for i in range(8000, 8665)])
-		print('mean sensitivity: ', net(sample).mean())
+		# works with list of paths (which is more efficient with batches > 1)
+		sample = net.transform([('/home/kashim/Downloads/dogsncats/dogs/' + '%d.jpg' % i) for i in range(8000, 8665)])
+		print('mean output dogs: ', net(sample).mean())
 
+		sample = net.transform([('/home/kashim/Downloads/dogsncats/cats/' + '%d.jpg' % i) for i in range(8000, 8665)])
+		print('mean output cats:', net(sample).mean())
 
-		sample = net.transform([(cats + '/%d.jpg' % i) for i in range(8000, 8665)])
-		print('mean type I error: ', net(sample).mean())
+		sample = net.transform([('/home/kashim/Downloads/dogsncats/cars/' + ('%d' % i).zfill(5)  + '.jpg') for i in range(8000, 8145)])
+		print('mean output cars:', net(sample).mean())
 
 if __name__ == '__main__':
 	main()
