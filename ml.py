@@ -71,7 +71,7 @@ class ImageGrayScale():
 		return None
 
 class DynamicBatchDataLoader():
-	def __init__(self, training_data, batch_size, shuffle):
+	def __init__(self, training_data, batch_size, bs_multiplier=1.05, shuffle=True):
 		
 		self.training_data = training_data
 		if shuffle: 
@@ -80,7 +80,7 @@ class DynamicBatchDataLoader():
 		self.batch_size = batch_size
 		self.shuffle = shuffle
 		self.offset = 0
-		self.bs_factor = 1.05
+		self.bs_multiplier = bs_multiplier
 		self.bs_value = batch_size
 
 	def __len__(self):
@@ -111,8 +111,8 @@ class DynamicBatchDataLoader():
 
 	def step(self):
 		""" Increase batch_size, for instance per epoch. """
-		if self.bs_value * self.bs_factor < len(self):
-			self.bs_value *= self.bs_factor
+		if self.bs_value * self.bs_multiplier < len(self):
+			self.bs_value *= self.bs_multiplier
 			self.batch_size = int(self.bs_value)
 
 		
@@ -155,9 +155,9 @@ class CNN(nn.Module):
 		x = x.view(-1, self.fc1.in_features) # flatten the self.conv2 convolution layer. 
 		x = F.relu(self.fc1(x))
 		x = F.relu(self.fc2(x))
-		x = F.softmax(self.fc3(x))  
+		x = F.softmax(self.fc3(x))           # https://en.wikipedia.org/wiki/Softmax_function
 		x = x.squeeze(-1)                    # squeeze output into batch_dim
-		
+
 		return x
 
 	def save(self, path):
@@ -324,9 +324,9 @@ def main():
 	# customize your datasource here
 	dogs = sys.argv[1]     # TODO: use doc_opt instead of sys.argv
 	image_size = 35        # resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 0.1         # only use the first data_ratio*100% of the dataset
+	data_ratio = 1       # only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
-	batch_size = 1         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	batch_size = 32         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
 	#batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 
@@ -337,15 +337,15 @@ def main():
 	#testing-data = data_total[10:20]
 
 	# data loaders (sexy iterators)
-	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, shuffle=True)
+	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, bs_multiplier=1.01, shuffle=True)
 	#testing_loader = torch.utils.data.DataLoader(testing_data, batch_size=1, shuffle=True)
 
 
 	# customize your CNN here
 	model_path = 'model.asd'
 	cycles = 100000
-	learning_rate = 0.01
-	save_per_cycle = 100
+	learning_rate = 0.001
+	save_per_cycle = 100  # save model every 100 cycles
 
 	# create a CNN
 	net = CNN(im_size=image_size, lr=learning_rate)
