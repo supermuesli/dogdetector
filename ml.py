@@ -70,6 +70,18 @@ class ImageGrayScale():
 
 		return None
 
+def binary_cross_entropy_loss(pred_probs, true_labels):
+		# read here: https://stackoverflow.com/questions/60922782/how-can-i-count-the-number-of-1s-and-0s-in-the-second-dimension-of-a-pytorch-t
+
+		ones = (true_labels == 1).sum(dim=0) # number of positive samples in training batch
+		zeros = true_labels.shape[0] - ones  # number of negative samples in training batch
+
+		# note that pred_prob is the probability of a sample being a positive
+		# and 1 - preb_prob is the probability of a sample being negative
+		loss = (true_labels.shape[0] * (pred_probs ** ones) * ((1 - pred_probs) ** zeros)).mean()
+		
+		return loss
+
 class DynamicBatchDataLoader():
 	def __init__(self, training_data, batch_size=1, bs_multiplier=1.02, shuffle=True):
 		
@@ -145,7 +157,8 @@ class CNN(nn.Module):
 		self.fc2 = nn.Linear(16, 8)
 		self.fc3 = nn.Linear(8, 1)
 
-		self.criterion = nn.BCELoss()
+		#self.criterion = nn.BCELoss()
+		self.criterion = binary_cross_entropy_loss
 
 		# read https://openreview.net/pdf?id=B1Yy1BxCZ
 		self.optimizer = optim.SGD(self.parameters(), lr=lr, momentum=0.9)
@@ -257,7 +270,7 @@ class CNN(nn.Module):
 				self.optimizer.zero_grad() # don't forget to zero the gradient buffers per batch !
 
 				# outputs if the batch is left as is (batch contains only positive samples at this point)
-				target = torch.tensor([[1] for b in range(batch.size()[0])]) # class 1 is a dog
+				target = torch.tensor([[1] for b in range(batch.shape[0])]) # class 1 is a dog
 				
 				for b in range(len(batch)):
 
@@ -329,7 +342,7 @@ class CNN(nn.Module):
 
 def main():
 	# customize logging
-	log_level = logging.DEBUG
+	log_level = logging.INFO
 	logging.basicConfig(level=log_level)
 
 	# if CUDA available, use it
@@ -342,7 +355,7 @@ def main():
 	# customize your datasource here
 	dogs = sys.argv[1]     # TODO: use doc_opt instead of sys.argv
 	image_size = 35        # resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 1         # only use the first data_ratio*100% of the dataset
+	data_ratio = 0.1         # only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
 	batch_size = 1         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
@@ -362,7 +375,7 @@ def main():
 	# customize your CNN here
 	model_path = 'model.asd'
 	cycles = 100000
-	learning_rate = 0.0000001
+	learning_rate = 0.0001
 	save_per_cycle = 100  # save model every 100 cycles
 
 	# create a CNN
