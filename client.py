@@ -26,21 +26,24 @@ def main():
 	
 	# load an existing model if possible
 	net.load(model_path)
+	for i in net.parameters():
+		print(i)
 
-	if False:
-		# works with a single path
-		sample = net.transform(dogs)
-		print(net(sample).mean())
-	else:
-		# works with list of paths (which is more efficient with batches > 1)
-		sample = net.transform([('/home/kashim/Downloads/dogsncats/dogs/' + '%d.jpg' % i) for i in range(8000, 8665)])
-		print('mean output dogs: ', net(sample).mean(0))
+	with torch.no_grad():
+		if False:
+			# works with a single path
+			sample = net.transform(dogs)
+			print(net(sample).mean())
+		else:
+			# works with list of paths (which is more efficient with batches > 1)
+			sample = net.transform([('/home/kashim/Downloads/dogsncats/dogs/' + '%d.jpg' % i) for i in range(8000, 8665)])
+			print('mean output dogs: ', net(sample).mean(0))
 
-		sample = net.transform([('/home/kashim/Downloads/dogsncats/cats/' + '%d.jpg' % i) for i in range(8000, 8665)])
-		print('mean output cats:', net(sample).mean(0))
+			sample = net.transform([('/home/kashim/Downloads/dogsncats/cats/' + '%d.jpg' % i) for i in range(8000, 8665)])
+			print('mean output cats:', net(sample).mean(0))
 
-		sample = net.transform([('/home/kashim/Downloads/dogsncats/cars/' + ('%d' % i).zfill(5)  + '.jpg') for i in range(8000, 8145)])
-		print('mean output cars:', net(sample).mean(0))
+			sample = net.transform([('/home/kashim/Downloads/dogsncats/cars/' + ('%d' % i).zfill(5)  + '.jpg') for i in range(8000, 8145)])
+			print('mean output cars:', net(sample).mean(0))
 
 if __name__ == '__main__':
 	main()

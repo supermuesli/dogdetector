@@ -71,7 +71,7 @@ class ImageGrayScale():
 		return None
 
 class DynamicBatchDataLoader():
-	def __init__(self, training_data, batch_size, bs_multiplier=1.05, shuffle=True):
+	def __init__(self, training_data, batch_size=1, bs_multiplier=1.02, shuffle=True):
 		
 		self.training_data = training_data
 		
@@ -110,7 +110,7 @@ class DynamicBatchDataLoader():
 				if self.offset >= len(self):
 					self.offset = 0
 			
-				yield x
+			yield x
 
 	def step(self):
 		""" Increase batch_size, for instance per epoch. """
@@ -137,10 +137,10 @@ class CNN(nn.Module):
 		in_dim = out_dim
 		out_dim = 16
 		self.conv2 = nn.Conv2d(in_dim, out_dim, kernel_size)
-		self.fc1 = nn.Linear(out_dim * ((((im_size - kernel_size) // pool_size) - kernel_size) // pool_size)**2, 128) # consider self.forward as to why this input dimension was chosen, also read here:
+		self.fc1 = nn.Linear(out_dim * ((((im_size - kernel_size) // pool_size) - kernel_size) // pool_size)**2, 32) # consider self.forward as to why this input dimension was chosen, also read here:
 		                                                                                                             # https://stackoverflow.com/questions/53784998/how-are-the-pytorch-dimensions-for-linear-layers-calculated
 		
-		self.fc2 = nn.Linear(128, 16)
+		self.fc2 = nn.Linear(32, 16)
 		self.fc3 = nn.Linear(16, 1)
 
 		self.criterion = nn.BCELoss()
@@ -153,17 +153,18 @@ class CNN(nn.Module):
 		#self.to(self.device)
 
 	def forward(self, x):
-		x = self.pool(F.relu(self.conv1(x)))
-		x = self.pool(F.relu(self.conv2(x)))
+		x = self.pool(self.conv1(x))
+		x = self.pool(self.conv2(x))
 		x = x.view(-1, self.fc1.in_features) # flatten the self.conv2 convolution layer. 
 		x = F.relu(self.fc1(x))
 		x = F.relu(self.fc2(x))
 		x = self.fc3(x)
-		x = x.squeeze(-1)                    # squeeze output into batch_dim
-		print("\nx:", x, "\nmax:",x.max())
-		x = x/x.max()                         # normalize tensor to range [0, 1] via dividing by batch maximum value    
-		print(x)
 		
+		x = x.squeeze(-1)                    # squeeze output into batch_dim
+		
+		x = x - x.min()                      # normalize tensor to range [0, 1]
+		x = x / x.max() if x.max() != 0 else x
+
 		return x
 
 	def save(self, path):
@@ -275,7 +276,7 @@ class CNN(nn.Module):
 
 				# this is purely for logging
 				choice = 'against batch/black/noise'
-				self.loss = self.criterion(self(batch), target.float()) # note that self(batch) outputs the probability of the input being a dog, 
+				self.loss = self.criterion(self(batch).unsqueeze(1), target.float()) # note that self(batch) outputs the probability of the input being a dog, 
 				                                                                     # while target holds the actual class of the input
 			
 				# debugging loss
@@ -284,7 +285,7 @@ class CNN(nn.Module):
 				
 				self.loss.backward()   # backward propagate loss
 				self.optimizer.step()  # update the parameters
-				self.scheduler.step()  # dynamic learning rate
+				#self.scheduler.step()  # dynamic learning rate
 				training_loader.step() # dynamic batch size
 				
 				# cycle is finished at this point
@@ -330,9 +331,9 @@ def main():
 	# customize your datasource here
 	dogs = sys.argv[1]     # TODO: use doc_opt instead of sys.argv
 	image_size = 35        # resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 0.1       # only use the first data_ratio*100% of the dataset
+	data_ratio = 1       # only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
-	batch_size = 16         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	batch_size = 1         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
 	#batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 
@@ -343,21 +344,21 @@ def main():
 	#testing-data = data_total[10:20]
 
 	# data loaders (sexy iterators)
-	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, bs_multiplier=1.00, shuffle=True)
+	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, bs_multiplier=1.01, shuffle=True)
 	#testing_loader = torch.utils.data.DataLoader(testing_data, batch_size=1, shuffle=True)
 
 
 	# customize your CNN here
 	model_path = 'model.asd'
 	cycles = 100000
-	learning_rate = 0.001
+	learning_rate = 0.0000000001
 	save_per_cycle = 100  # save model every 100 cycles
 
 	# create a CNN
 	net = CNN(im_size=image_size, lr=learning_rate)
 
 	# load an existing model if possible
-	net.load(model_path)
+	#net.load(model_path)
 
 	# train the model
 	net.fit(cycles, training_loader, save_per_cycle=save_per_cycle)
