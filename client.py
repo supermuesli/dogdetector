@@ -27,8 +27,7 @@ def main():
 		
 		# load an existing model if possible
 		net.load(model_path)
-		for i in net.parameters():
-			print(i)
+		net.eval()
 
 		if False:
 			# works with a single path
@@ -36,11 +35,14 @@ def main():
 			print(net(sample).mean())
 		else:
 			# works with list of paths (which is more efficient with batches > 1)
-			sample = net.transform([('/home/muesli/Downloads/dogsncats/dogs/' + '%d.jpg' % i) for i in range(8000, 8665)])
-			print('mean output dogs: ', net(sample).mean(0))
+			sample = net.transform([('/home/kashim/Downloads/dogsncats/dogs/' + '%d.jpg' % i) for i in range(8000, 8665)])
+			print('mean output dogs: ', net(sample).mean())
 
-			sample = net.transform([('/home/muesli/Downloads/dogsncats/cats/' + '%d.jpg' % i) for i in range(8000, 8665)])
-			print('mean output cats:', net(sample).mean(0))
+			sample = net.transform([('/home/kashim/Downloads/dogsncats/cats/' + '%d.jpg' % i) for i in range(8000, 8665)])
+			print('mean output cats:', net(sample).mean())
+
+			sample = net.transform([('/home/kashim/Downloads/dogsncats/cars/' + '%d'.zfill(3) % i + '.jpg' ) for i in range(8000, 8141)])
+			print('mean output cars:', net(sample).mean())
 
 if __name__ == '__main__':
 	main()

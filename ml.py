@@ -11,7 +11,7 @@ from torchvision import transforms, utils
 from PIL import Image
 
 class ImageGrayScale():
-	""" Load any dataset of images, but only their grayscale values. """
+	""" Load any collection of images, but only their grayscale values. """
 
 	def __init__(self, root_dir, im_size=255, transform=transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])):
 		"""
@@ -70,25 +70,36 @@ class ImageGrayScale():
 
 		return None
 
-def binary_cross_entropy_loss(pred_probs, true_labels):
-		# read here: https://stackoverflow.com/questions/60922782/how-can-i-count-the-number-of-1s-and-0s-in-the-second-dimension-of-a-pytorch-t
+def binary_likelihood_loss(pred_probs, true_labels):
+	""" """
 
-		ones = (true_labels == 1).sum(dim=0) # number of positive samples in training batch
-		zeros = true_labels.shape[0] - ones  # number of negative samples in training batch
+	# read here: https://stackoverflow.com/questions/60922782/how-can-i-count-the-number-of-1s-and-0s-in-the-second-dimension-of-a-pytorch-t
 
-		# note that pred_prob is the probability of a sample being a positive
-		# and 1 - preb_prob is the probability of a sample being negative
-		loss = (true_labels.shape[0] * (pred_probs ** ones) * ((1 - pred_probs) ** zeros)).mean()
-		
-		return loss
+	ones =  ((true_labels == 0).sum(dim=0)).float() # number of positive samples in training batch
+	zeros = (true_labels.shape[0] - ones).float()   # number of negative samples in training batch
+
+	# note that pred_prob is the probability of a sample being a positive
+	# and 1 - preb_prob is the probability of a sample being negative
+
+	loss = (((ones - pred_probs*pred_probs.shape[0])**2 + (zeros - (1 - pred_probs)*pred_probs.shape[0])**2) ).mean()
+
+	"""
+	ones big, pred_prob big      -> loss small
+	zeros big, 1-pred_prob big   -> loss small
+	ones small, pred_prob big    -> loss big
+	zeros small, 1-pred_prob big -> loss big
+
+	"""
+	
+	return loss
 
 class DynamicBatchDataLoader():
-	def __init__(self, training_data, batch_size=1, bs_multiplier=1.02, shuffle=True):
+	def __init__(self, training_data, batch_size=1, bs_multiplier=1.001, shuffle=True):
 		
 		self.training_data = training_data
 		
 		self.shuffle = shuffle
-		if self.shuffle: 
+		if self.shuffle:
 			random.shuffle(self.training_data)
 
 		self.batch_size = batch_size
@@ -151,18 +162,18 @@ class CNN(nn.Module):
 		in_dim = out_dim
 		out_dim = 16
 		self.conv2 = nn.Conv2d(in_dim, out_dim, kernel_size)
-		self.fc1 = nn.Linear(out_dim * ((((im_size - kernel_size) // pool_size) - kernel_size) // pool_size)**2, 16) # consider self.forward as to why this input dimension was chosen, also read here:
+		self.fc1 = nn.Linear(out_dim * ((((im_size - kernel_size) // pool_size) - kernel_size) // pool_size)**2, 64) # consider self.forward as to why this input dimension was chosen, also read here:
 		                                                                                                             # https://stackoverflow.com/questions/53784998/how-are-the-pytorch-dimensions-for-linear-layers-calculated
 		
-		self.fc2 = nn.Linear(16, 8)
-		self.fc3 = nn.Linear(8, 1)
+		self.fc2 = nn.Linear(64, 32)
+		self.fc3 = nn.Linear(32, 1)
 
-		#self.criterion = nn.BCELoss()
-		self.criterion = binary_cross_entropy_loss
+		self.criterion = nn.BCELoss()
+		#self.criterion = binary_likelihood_loss
 
 		# read https://openreview.net/pdf?id=B1Yy1BxCZ
 		self.optimizer = optim.SGD(self.parameters(), lr=lr, momentum=0.9)
-		self.scheduler = optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=lr/100, max_lr=lr*100)
+		self.scheduler = optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=lr, max_lr=lr*100)
 
 		# gpu computation if possible, else cpu
 		self.device = device
@@ -170,21 +181,23 @@ class CNN(nn.Module):
 
 		# gradient clipping in order to prevent nan values for loss
 		for p in self.parameters():
-			p.register_hook(lambda grad: torch.clamp(grad, -1, 1))
+			p.register_hook(lambda grad: torch.clamp(grad, -100, 100))
 
 	def forward(self, x):
-		x = self.pool(self.conv1(x))
-		x = self.pool(self.conv2(x))
+		x = self.pool(torch.sigmoid(self.conv1(x)))
+		x = self.pool(torch.sigmoid(self.conv2(x)))
 		x = x.view(-1, self.fc1.in_features) # flatten the self.conv2 convolution layer. 
-		x = F.relu(self.fc1(x))
-		x = F.relu(self.fc2(x))
+		x = torch.sigmoid(self.fc1(x))
+		x = self.fc2(x)
 		x = self.fc3(x)
 		
 		x = x.squeeze(-1)                    # squeeze output into batch_dim
-		
-		x = x - x.min()                      # normalize tensor to range [0, 1]
-		x = x / x.max() if x.max() != 0 else x
 
+
+		#x = x - x.min()                      # normalize tensor to range [0, 1]
+		#x = x / x.max() if x.max() != 0 else x
+		x = torch.sigmoid(x)
+		print(x)
 		return x
 
 	def save(self, path):
@@ -212,8 +225,6 @@ class CNN(nn.Module):
 		# load conventional state dict
 		
 		self.load_state_dict(sd)
-		
-		self.eval()
 
 	def im_transform(self, path):
 		""" Resize and pad image to self.im_size. """
@@ -237,18 +248,20 @@ class CNN(nn.Module):
 	def transform(self, path):
 		""" Transform a sample input so it fits through the network topology. """
 
+		transf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+
 		# a list of paths was given
 		if type(path) == list:
-			batch = transforms.ToTensor()(self.im_transform(path[0])).unsqueeze(0)
+			batch = transf(self.im_transform(path[0])).unsqueeze(0)
 			for i, p in enumerate(path):
 				if i > 0:
 					# see https://discuss.pytorch.org/t/concatenate-torch-tensor-along-given-dimension/2304
-					batch = torch.cat((batch, transforms.ToTensor()(self.im_transform(p)).unsqueeze(0)), 0)
+					batch = torch.cat((batch, transf(self.im_transform(p)).unsqueeze(0)), 0)
 		# a single path was given
 		else:
 			# add batch_dim (1)
 		 	# see https://stackoverflow.com/questions/57237352/what-does-unsqueeze-do-in-pytorch
-			return transforms.ToTensor()(self.im_transform(path)).unsqueeze(0)  
+			return transf(self.im_transform(path)).unsqueeze(0)  
 
 		return batch
 
@@ -270,42 +283,38 @@ class CNN(nn.Module):
 				self.optimizer.zero_grad() # don't forget to zero the gradient buffers per batch !
 
 				# outputs if the batch is left as is (batch contains only positive samples at this point)
-				target = torch.tensor([[1] for b in range(batch.shape[0])]) # class 1 is a dog
+				target = torch.tensor([[1] for b in range(batch.shape[0])]) # class 0 is a dog
 				
 				for b in range(len(batch)):
 
 					# with some probability, we want to introduce negative samples, but to prevent
 					# predictability based on class distribution in the training dataset, the randomness
 					# is supposed to be uniformly random as well
-					if random.random() < random.random():
-						
-						if random.random() < 0.5:
+					if random.random() < 0.5:
+						if False:
 							for color_channel in range(len(batch[b])):
 								for row in range(len(batch[b][color_channel])):
 									# black 
-									batch[b][color_channel][row] = torch.tensor([0 for j in range(self.im_size)])
+									batch[b][color_channel][row] = torch.tensor([-1 for j in range(self.im_size)])
 						
 						else:
 							for color_channel in range(len(batch[b])):
 								for row in range(len(batch[b][color_channel])):	
 									# noise
-									batch[b][color_channel][row] = torch.tensor([random.random() for j in range(self.im_size)])
+									batch[b][color_channel][row] = torch.tensor([2*random.random()-1 for j in range(self.im_size)])
 
-						# image changes, so output changes to class 0
-						target[b] = torch.tensor([0]) # class 0 is not a dog
+						# image changes, so output changes to class 1
+						target[b] = torch.tensor([0]) # class 1 is not a dog
 
 					# tensor debugging (what are you really feeding into the neural network?). uncomment the next line if not needed.
-					#if 100 < cycle < 101: transforms.ToPILImage()(batch[b]).show()
+					#transforms.ToPILImage()(batch[b]).show()
 
-
-				# this is purely for logging
-				choice = 'against batch/black/noise'
 				self.loss = self.criterion(self(batch).unsqueeze(1), target.float()) # note that self(batch) outputs the probability of the input being a dog, 
 				                                                                     # while target holds the actual class of the input
 			
 				# debugging loss
 				if cycle % 10 == 9:
-					logging.info('batch loss@size: %f@%d\t%s\tcycle: %d' % (self.loss, batch.size()[0], choice, cycle))
+					logging.info('batch loss@size: %f@%d\tcycle: %d' % (self.loss, batch.size()[0], cycle))
 				
 				self.loss.backward()   # backward propagate loss
 				self.optimizer.step()  # update the parameters
@@ -354,10 +363,10 @@ def main():
 
 	# customize your datasource here
 	dogs = sys.argv[1]     # TODO: use doc_opt instead of sys.argv
-	image_size = 35        # resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 0.1         # only use the first data_ratio*100% of the dataset
+	image_size = 115        # resize and (black-border)-pad images to image_size x image_size
+	data_ratio = 1         # only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
-	batch_size = 1         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	batch_size = 64         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
 	#batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 
@@ -368,13 +377,13 @@ def main():
 	#testing-data = data_total[10:20]
 
 	# data loaders (sexy iterators)
-	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, bs_multiplier=1.01, shuffle=True)
+	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, bs_multiplier=1.001, shuffle=True)
 	#testing_loader = torch.utils.data.DataLoader(testing_data, batch_size=1, shuffle=True)
 
 
 	# customize your CNN here
 	model_path = 'model.asd'
-	cycles = 100000
+	cycles = 1000000
 	learning_rate = 0.0001
 	save_per_cycle = 100  # save model every 100 cycles
 
