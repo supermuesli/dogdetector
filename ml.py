@@ -66,28 +66,6 @@ class ImageGrayScale():
 
 		return None
 
-def binary_likelihood_loss(pred_probs, true_labels):
-	""" """
-
-	# read here: https://stackoverflow.com/questions/60922782/how-can-i-count-the-number-of-1s-and-0s-in-the-second-dimension-of-a-pytorch-t
-
-	ones =  ((true_labels == 0).sum(dim=0)).float() # number of positive samples in training batch
-	zeros = (true_labels.shape[0] - ones).float()   # number of negative samples in training batch
-
-	# note that pred_prob is the probability of a sample being a positive
-	# and 1 - preb_prob is the probability of a sample being negative
-
-	loss = (((ones - pred_probs*pred_probs.shape[0])**2 + (zeros - (1 - pred_probs)*pred_probs.shape[0])**2) ).mean()
-
-	"""
-	ones big, pred_prob big      -> loss small
-	zeros big, 1-pred_prob big   -> loss small
-	ones small, pred_prob big    -> loss big
-	zeros small, 1-pred_prob big -> loss big
-
-	"""
-	
-	return loss
 
 class DynamicBatchDataLoader():
 	def __init__(self, training_data, batch_size=1, bs_multiplier=1.001, shuffle=True):
@@ -174,8 +152,8 @@ class CNN(nn.Module):
 		self.fc7 = nn.Linear(32, 64)
 		self.fc8 = nn.Linear(64, im_size*im_size)
 
-		self.criterion = nn.MSELoss()
-		#self.criterion = binary_likelihood_loss
+		#self.criterion = nn.MSELoss()
+		self.criterion = lambda x, y: ((y-x)**2).mean()
 
 		# read https://openreview.net/pdf?id=B1Yy1BxCZ
 		self.optimizer = optim.SGD(self.parameters(), lr=lr, momentum=0.9)
@@ -205,8 +183,9 @@ class CNN(nn.Module):
 		x = self.fc6(x)
 		x = self.fc7(x)
 		x = self.fc8(x)
-		
+
 		x = x.view(-1, self.im_size, self.im_size) # squeeze output into batch_dim
+		x = x.unsqueeze(1)
 
 		#with torch.no_grad():
 		#	im = self.untransform(x[0])
@@ -283,7 +262,7 @@ class CNN(nn.Module):
 
 		logging.warning('note that net.untransform only works on the default transform (net.transf)')
 
-		return transforms.ToPILImage()(tensor)
+		return transforms.ToPILImage()((tensor+1)/2)
 
 	def fit(self, cycles, training_loader, save_per_cycle=1):
 		""" Train the CNN for the given number of cycles on the given training dataset. 
@@ -307,11 +286,11 @@ class CNN(nn.Module):
 				#	im.show()
 				#	input()
 
-				self.loss = self.criterion(self(batch), batch.squeeze(1)) 
-
+				self.loss = self.criterion(self(batch), batch) 
+				
 				# debugging loss
 				if cycle % 10 == 9:
-					logging.info('batch loss@batch_size: %f@%d\tcycle: %d' % (self.loss, batch.size()[0], cycle))
+					logging.info('batch loss@batch_size: %f@%d\tcycle: %d' % (self.loss, batch.shape[0], cycle))
 				
 				self.loss.backward()   # backward propagate loss
 				self.optimizer.step()  # update the parameters
@@ -358,9 +337,9 @@ def main():
 	# customize your CNN here
 	model_path = 'model.asd'
 	cycles = 1000000
-	learning_rate = 0.0000000001
+	learning_rate = 0.0000000000000001
 	save_per_cycle = 100  # save model every 100 cycles
-	transf = transforms.Compose([transforms.ToTensor()])
+	transf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
 
 	# create a CNN
 	net = CNN(im_size=image_size, lr=learning_rate, transf=transf)
