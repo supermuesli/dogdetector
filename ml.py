@@ -172,7 +172,7 @@ class CNN(nn.Module):
 		#self.criterion = binary_likelihood_loss
 
 		# read https://openreview.net/pdf?id=B1Yy1BxCZ
-		self.optimizer = optim.SGD(self.parameters(), lr=lr, momentum=0.9)
+		self.optimizer = optim.SGD(self.parameters(), lr=lr, weight_decay=0.01, momentum=0.9)
 		self.scheduler = optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=lr, max_lr=lr*100)
 
 		# gpu computation if possible, else cpu
@@ -186,8 +186,8 @@ class CNN(nn.Module):
 	def forward(self, x):
 		x = self.pool(torch.sigmoid(self.conv1(x)))
 		x = self.pool(torch.sigmoid(self.conv2(x)))
-		x = x.view(-1, self.fc1.in_features) # flatten the self.conv2 convolution layer. 
-		x = torch.sigmoid(self.fc1(x))
+		x = x.view(x.size(0), -1)                   # flatten the self.conv2 convolution layer while keeping batch_dim. 
+		x = self.fc1(x)
 		x = self.fc2(x)
 		x = self.fc3(x)
 		
@@ -197,7 +197,7 @@ class CNN(nn.Module):
 		#x = x - x.min()                      # normalize tensor to range [0, 1]
 		#x = x / x.max() if x.max() != 0 else x
 		x = torch.sigmoid(x)
-		print(x)
+		
 		return x
 
 	def save(self, path):
@@ -318,7 +318,7 @@ class CNN(nn.Module):
 				
 				self.loss.backward()   # backward propagate loss
 				self.optimizer.step()  # update the parameters
-				self.scheduler.step()  # dynamic learning rate
+				#self.scheduler.step()  # dynamic learning rate
 				training_loader.step() # dynamic batch size
 				
 				# cycle is finished at this point
@@ -363,12 +363,12 @@ def main():
 
 	# customize your datasource here
 	dogs = sys.argv[1]     # TODO: use doc_opt instead of sys.argv
-	image_size = 115        # resize and (black-border)-pad images to image_size x image_size
+	image_size = 75        # resize and (black-border)-pad images to image_size x image_size
 	data_ratio = 1         # only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
 	batch_size = 64         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
-	#batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	#batch_size = int(len(data_total)*train_test_ratio*data_ratio)y
 
 	# split data into training:testing datasets
 	training_data = data_total[:int(data_ratio*train_test_ratio*len(data_total))]
@@ -384,14 +384,14 @@ def main():
 	# customize your CNN here
 	model_path = 'model.asd'
 	cycles = 1000000
-	learning_rate = 0.0001
+	learning_rate = 0.001
 	save_per_cycle = 100  # save model every 100 cycles
 
 	# create a CNN
 	net = CNN(im_size=image_size, lr=learning_rate)
 
 	# load an existing model if possible
-	net.load(model_path)
+	#net.load(model_path)
 
 	# train the model
 	net.fit(cycles, training_loader, save_per_cycle=save_per_cycle)
