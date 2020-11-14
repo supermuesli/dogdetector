@@ -19,7 +19,7 @@ def main():
 	dogs = '~/Downloads/dogsncats/dogs/1.jpg'
 
 	# customize your CNN here
-	model_path = 'model.asd'
+	model_path = 'model.ptc'
 
 	with torch.no_grad():
 		# create a CNN
@@ -27,10 +27,13 @@ def main():
 		
 		# load an existing model if possible
 		net.load(model_path)
-		net.eval()
+		net.eval() # inference mode
+
+		#for p in net.parameters():
+		#	print(p)
 
 		# works with list of paths (which is more efficient with batches > 1)
-		sample = net.transform([('/home/muesli/Downloads/dogsncats/dogs/' + '%d.jpg' % i) for i in range(8000, 8665)])
+		sample = net.transform([('/home/muesli/Downloads/dogsncats/dogs/' + '%d.jpg' % i) for i in range(0, 100)])
 		for t in net(sample):
 			im = net.untransform(t)
 			im.show()
