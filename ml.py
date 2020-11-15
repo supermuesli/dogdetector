@@ -154,18 +154,9 @@ class CNN(nn.Module):
 		amount_pools = 1
 		self.conv1 = nn.Conv2d(in_dim1, out_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
 		
-		in_dim2 = out_dim1
-		out_dim2 = 16
-		amount_pools += 1
-		self.conv2 = nn.Conv2d(in_dim2, out_dim2, kernel_size=kernel_size, padding=padding, stride=stride)
-
-		in_dim3 = out_dim2
-		out_dim3 = 16
-		self.conv3 = nn.Conv2d(in_dim3, out_dim3, kernel_size=kernel_size, padding=padding, stride=stride)
-
 		# fully connected layer assuming maxpooling after every convolution.
 		# we try to learn 10 principal components
-		in_dim4 =  10816 #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
+		in_dim4 =  14400 #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
 		out_dim4 = 8
 		self.fc1 = nn.Linear(in_dim4, out_dim4)
 
@@ -175,8 +166,6 @@ class CNN(nn.Module):
 	
 		self.fc2 = nn.Linear(out_dim4, in_dim4)
 
-		self.deconv1 = nn.ConvTranspose2d(out_dim3, in_dim3, kernel_size=kernel_size, padding=padding, stride=stride)
-		self.deconv2 = nn.ConvTranspose2d(out_dim2, in_dim2, kernel_size=kernel_size, padding=padding, stride=stride)
 		self.deconv3 = nn.ConvTranspose2d(out_dim1, in_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
 
 		# </decoder>
@@ -184,7 +173,7 @@ class CNN(nn.Module):
 		self.criterion = nn.MSELoss()
 		
 		# read https://openreview.net/pdf?id=B1Yy1BxCZ
-		self.optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=0.01)
+		self.optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=0.00001)
 		#self.scheduler = optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=lr/100000, max_lr=lr)
 
 		# gpu computation if possible, else cpu
@@ -202,8 +191,6 @@ class CNN(nn.Module):
 		# encode
 		
 		x = F.relu(self.conv1(x))
-		x = F.relu(self.conv2(x))
-		x = self.conv3(x)
 		
 		# flatten and keep batchsize
 		shapey = x.size()
@@ -217,8 +204,6 @@ class CNN(nn.Module):
 		# square'en and keep batchsize
 		x = x.view(shapey[0], shapey[1], shapey[2], shapey[3])
 
-		x = self.deconv1(x)
-		x = F.relu(self.deconv2(x))
 		x = F.relu(self.deconv3(x))
 
 		# reshape to original imagesize and keep batchsize
@@ -316,7 +301,6 @@ class CNN(nn.Module):
 		continue_training = True
 		while continue_training:
 			for im_batch in training_loader:
-				self.optimizer.zero_grad() # don't forget to zero the gradient buffers per batch !
 				
 				batch = torch.tensor([])
 				for im in im_batch:
@@ -337,18 +321,19 @@ class CNN(nn.Module):
 					i.show()
 					input()
 
-				"""
 				
 				for b in self(batch):
 					i = self.untransform(b)
 					i.show()
 					input()
+				"""
 					
 
 				self.loss = self.criterion(self(batch), batch) 
 
 				
 				
+				self.optimizer.zero_grad() # don't forget to zero the gradient buffers per batch !
 				self.loss.backward()   # backward propagate loss
 				
 				self.optimizer.step()  # update the parameters
@@ -387,7 +372,7 @@ def main():
 	image_size = 32        # resize and (black-border)-pad images to image_size x image_size
 	data_ratio = 0.1         # only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
-	batch_size = 256         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	batch_size = 128         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
 	#batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 
@@ -401,14 +386,14 @@ def main():
 	# customize your CNN here
 	model_path = 'autoencoder.ptc'
 	epochs = 1000000
-	learning_rate = 0.00000000000001
+	learning_rate = 0.00001
 	save_per_epoch = 10  # save model every 100 epochs
 
 	# create a CNN
 	net = CNN(im_size=image_size, lr=learning_rate, name='autoencoder')
 
 	# load an existing model if possible
-	#net.load(model_path)
+	net.load(model_path)
 
 	# train the model
 	net.train()
