@@ -18,7 +18,6 @@ class ImageGrayScale():
 		Args:
 			root_dir (string)             : Directory with all the images of one specific class.
 			im_size (int, optional)       : Images will be padded (black) into a square of length im_size, defaults to 255.
-			transform (callable, optional): Transform to be applied on a sample, defaults to transforms.ToTensor().
 		"""
 
 		self.im_size = im_size
@@ -60,9 +59,7 @@ class ImageGrayScale():
 					# debugging
 					# sample.show()
 
-			x = transforms.ToTensor()(sample)
-			sample.close()
-			return x
+			return sample
 		else:
 			logging.critical('CNN.__getitem__ is not implemented for idx of type %s ' % type(idx))
 
@@ -94,13 +91,13 @@ class DynamicBatchDataLoader():
 		#	random.shuffle(self.training_data)
 
 		for b in range(self.batch_size):
-			x = torch.tensor([])
+			x = []
 			
 			upper_limit = self.offset + self.batch_size
 			
 			if upper_limit > len(self):
 				for i in range(self.offset, len(self), 1):
-					x = torch.cat((x, self.training_data[i].unsqueeze(0)), 0)
+					x += [self.training_data[i]]
 				
 				upper_limit = (self.offset + self.batch_size) - len(self) 
 				self.offset = 0
@@ -108,13 +105,16 @@ class DynamicBatchDataLoader():
 			#logging.debug('dynamic batch offset/upper_limit: %d/%d' % (self.offset, upper_limit))
 
 			for i in range(self.offset, upper_limit, 1):	
-				x = torch.cat((x, self.training_data[i].unsqueeze(0)), 0)
+				x += [self.training_data[i]]
 
 				self.offset += 1
 				if self.offset >= len(self):
 					self.offset = 0
 			
 			yield x
+	
+	def add_transform(self, transf):
+		self.transf = transf
 
 	def step(self):
 		""" Increase batch_size, for instance per epoch. """
@@ -126,38 +126,63 @@ class DynamicBatchDataLoader():
 class CNN(nn.Module):
 	""" Convolutional Neural Network for classification of grayscale images. """
 
-	def __init__(self, device='cpu', im_size=35, lr=0.01, epoch=0, transf=transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])):
+	def __init__(self, device='cpu', im_size=32, lr=0.01, epoch=0, transf=transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]), name='model', clip_grad=False):
+		""" 
+			Args:
+
+		"""
+
 		super(CNN, self).__init__()
 		
 		self.im_size = im_size
 		self.epoch = epoch
 		self.transf = transf
+		self.name = name
 
-		"""
-		# network topology (encoder)
-		kernel_size = 5	
+		# network topology and architecture
 		pool_size = 2
-		out_dim = 6
-		self.conv1 = nn.Conv2d(1, out_dim, kernel_size)
 		self.pool = nn.MaxPool2d(pool_size, pool_size)
 		
-		in_dim = out_dim
-		out_dim = 16
-		self.conv2 = nn.Conv2d(in_dim, out_dim, kernel_size)
-		self.fc1 = nn.Linear(out_dim * ((((im_size - kernel_size) // pool_size) - kernel_size) // pool_size)**2, 64) # consider self.forward as to why this input dimension was chosen, also read here:
-		                                                                                                             # https://stackoverflow.com/questions/53784998/how-are-the-pytorch-dimensions-for-linear-layers-calculated
-		self.fc2 = nn.Linear(64, 32)
-		self.fc3 = nn.Linear(32, 16)
-		self.fc4 = nn.Linear(16, 8)
-		
-		# decoder
-		self.fc5 = nn.Linear(8, 16)
-		self.fc6 = nn.Linear(16, 32)
-		self.fc7 = nn.Linear(32, 64)
-		self.fc8 = nn.Linear(64, im_size**2)
-		"""
+		# prefarably multiple of pool_size
+		kernel_size = 4	
+		padding = kernel_size//2
+		stride = 1
 
-		self.fuck = nn.Linear(im_size**2, im_size**2)
+		# <encoder>
+
+		in_dim1 = 1   # because we only consider grayscale values (luminance)
+		out_dim1 = 32
+		amount_pools = 1
+		self.conv1 = nn.Conv2d(in_dim1, out_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
+		
+		in_dim2 = out_dim1
+		out_dim2 = 16
+		amount_pools += 1
+		self.conv2 = nn.Conv2d(in_dim2, out_dim2, kernel_size=kernel_size, padding=padding, stride=stride)
+
+		in_dim3 = out_dim2
+		out_dim3 = 8
+		self.conv3 = nn.Conv2d(in_dim3, out_dim3, kernel_size=kernel_size, padding=padding, stride=stride)
+
+		# fully connected layer assuming maxpooling after every convolution.
+		# we try to learn 10 principal components
+		in_dim4 = 648 #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
+		out_dim4 = 10
+		self.fc1 = nn.Linear(in_dim4, out_dim4)
+
+		# </encoder>
+
+		# <decoder>
+
+		in_dim5 = out_dim4
+		out_dim5 = in_dim4		
+		self.fc2 = nn.Linear(in_dim5, out_dim5)
+
+		self.deconv1 = nn.ConvTranspose2d(out_dim3, in_dim3, kernel_size=kernel_size, padding=padding, stride=stride)
+		self.deconv2 = nn.ConvTranspose2d(out_dim2, in_dim2, kernel_size=kernel_size, padding=padding, stride=stride)
+		self.deconv3 = nn.ConvTranspose2d(out_dim1, in_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
+
+		# </decoder>
 
 		self.criterion = nn.MSELoss()
 		
@@ -165,53 +190,60 @@ class CNN(nn.Module):
 		self.optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=0.01)
 		#self.scheduler = optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=lr, max_lr=lr*100)
 
-
 		# gpu computation if possible, else cpu
 		self.device = device
 		self.to(self.device)
 
 		# gradient clipping in order to prevent nan values for loss
-		#for p in self.parameters():
-		#	p.register_hook(lambda grad: torch.clamp(grad, -100, 100))
+		if clip_grad:
+			for p in self.parameters():
+				p.register_hook(lambda grad: torch.clamp(grad, -100, 100))
 
 	def forward(self, x):
-		"""
-		# extract features (encode)
-		x = self.pool(F.relu(self.conv1(x)))
-		x = self.pool(F.relu(self.conv2(x)))
-		x = x.view(x.size(0), self.fc1.in_features) # flatten the self.conv2 convolution layer. 
-		x = F.relu(self.fc1(x))
-		x = self.fc2(x)
-		x = self.fc3(x)
-		x = self.fc4(x)
-
-		# at this point, x stores the principal components
-
-		# decode
-		x = self.fc5(x)
-		x = self.fc6(x)
-		x = self.fc7(x)
-		x = self.fc8(x)
-
-		x = x.view(x.size(0), 1, self.im_size, self.im_size) # squeeze output into batch_dim
-		"""
+		# encode
 		
-		x = x.view(x.size(0), self.im_size**2) # flatten the self.conv2 convolution layer. 	
-		x = self.fuck(x)
-		x = x.view(x.size(0), self.im_size, self.im_size)
-		x = x.unsqueeze(1)
+		print(x.shape)
+		x = self.pool(F.relu(self.conv1(x)))
+		print(x.shape)
+		x = self.pool(F.relu(self.conv2(x)))
+		print(x.shape)
+		x = F.relu(self.conv3(x))
+		print(x.shape)
 
-		#with torch.no_grad():
-		#	im = self.untransform(x[0])
-		#	im.show()
-		#	input('press enter to continue')
+		# flatten and keep batchsize
+		x = x.view(x.shape[0], -1)
+		
+		print(x.shape)
+		x = self.fc1(x)
+		
+		print(x.shape)
+		# decode
+		x = self.fc2(x)
+		print(x.shape)
+
+		# square'en and keep batchsize
+		x = x.view(x.shape[0], torch.sqrt(x.shape[1]), torch.sqrt(x.shape[1]))
+
+		x = self.pool(F.relu(self.deconv1(x)))
+		print(x.shape)
+		x = self.pool(F.relu(self.deconv2(x)))
+		print(x.shape)
+		x = self.pool(F.relu(self.deconv3(x)))
+		print(x.shape)
+
+		# reshape to original imagesize and keep batchsize
+		x = x.view(x.size(0), 1, self.im_size, self.im_size)
+		print(x.shape)
 
 		return x
 
-	def save(self, path):
+	def save(self, path=None):
 		""" Save the CNN model. """
 
-		filename = path + '.ptc'
+		if path:
+			filename = path + '.ptc'
+		else:
+			filename = self.name + '.ptc'
 
 		logging.warning('writing model into %s, do not kill this process or %s will be corrupted!' % (filename, filename))
 		
@@ -228,10 +260,10 @@ class CNN(nn.Module):
 		checkpoint = torch.load(path)
 		self.__init__(im_size=checkpoint['im_size'], epoch=checkpoint['epoch'])
 		self.load_state_dict(checkpoint['model_state_dict'])
-		self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+		#self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
 	def im_transform(self, path):
-		""" Resize and pad image to self.im_size. """
+		""" Open, resize and pad image at given path to self.im_size. """
 
 		sample = Image.open(path).convert('L')
 
@@ -250,7 +282,7 @@ class CNN(nn.Module):
 		return sample
 
 	def transform(self, path):
-		""" Transform a sample input so it fits through the network topology. """
+		""" Transform a sample input from image-path to batch-tensor. """
 
 		# a list of paths was given
 		if type(path) == list:
@@ -262,6 +294,7 @@ class CNN(nn.Module):
 				if i > 0:
 					# see https://discuss.pytorch.org/t/concatenate-torch-tensor-along-given-dimension/2304
 					batch = torch.cat((batch, self.transf(self.im_transform(p)).unsqueeze(0)), 0)
+		
 		# a single path was given
 		else:
 			# add batch_dim (1)
@@ -273,8 +306,8 @@ class CNN(nn.Module):
 
 		return batch
 
-
 	def untransform(self, tensor):
+		""" Untransform a given tensor to a PIL image and undo default normalization. """
 
 		logging.warning('note that net.untransform only works on the default transform (net.transf)')
 
@@ -293,28 +326,33 @@ class CNN(nn.Module):
 	
 		continue_training = True
 		while continue_training:
-			for batch in training_loader:
+			for im_batch in training_loader:
 				self.optimizer.zero_grad() # don't forget to zero the gradient buffers per batch !
 				
-				#for b in batch:
-				#	im = self.untransform(b)
+				#for im in im_batch:
 				#	im.show()
 				#	input()
 
+				batch = torch.tensor([])
+				for im in im_batch:
+					batch = torch.cat((batch, self.transf(im).unsqueeze(0)))
+					
 				self.loss = self.criterion(self(batch), batch) 
+
 				
 				# debugging loss
 				if self.epoch % 10 == 9:
 					logging.info('batch loss@batch_size: %f@%d\tepoch: %d' % (self.loss, batch.shape[0], self.epoch))
 				
 				self.loss.backward()   # backward propagate loss
+				
 				self.optimizer.step()  # update the parameters
-				#self.scheduler.step()  # dynamic learning rate
-				training_loader.step() # dynamic batch size
+				#self.scheduler.step()  # update learning rate
+				training_loader.step() # update batch size
 				
 				# epoch is finished at this point
 				if self.epoch % save_per_epoch == save_per_epoch - 1:
-					self.save('model')
+					self.save()
 
 				self.epoch += 1
 				if self.epoch == epochs:
@@ -335,10 +373,10 @@ def main():
 
 	# customize your datasource here
 	dogs = sys.argv[1]     # TODO: use doc_opt instead of sys.argv
-	image_size = 35        # resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 0.1         # only use the first data_ratio*100% of the dataset
+	image_size = 32        # resize and (black-border)-pad images to image_size x image_size
+	data_ratio = 0.05         # only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
-	batch_size = 32         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	batch_size = 512         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
 	#batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 
@@ -346,27 +384,27 @@ def main():
 	training_data = data_total[:int(data_ratio*train_test_ratio*len(data_total))]
 	
 	# data loaders (sexy iterators)
-	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, bs_multiplier=1.001, shuffle=True)
+	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, bs_multiplier=1, shuffle=True)
 	
 
 	# customize your CNN here
-	model_path = 'model.ptc'
+	model_path = 'autoencoder.ptc'
 	epochs = 1000000
-	learning_rate = 0.001
+	learning_rate = 0.1
 	save_per_epoch = 100  # save model every 100 epochs
-	transf = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
 
 	# create a CNN
-	net = CNN(im_size=image_size, lr=learning_rate, transf=transf)
+	net = CNN(im_size=image_size, lr=learning_rate, name='autoencoder')
 
 	# load an existing model if possible
 	#net.load(model_path)
 
 	# train the model
+	net.train()
 	net.fit(epochs, training_loader, save_per_epoch=save_per_epoch)
 
 	# save/dump model
-	net.save("model")
+	net.save()
 
 if __name__ == '__main__':
 	main()

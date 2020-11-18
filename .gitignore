@@ -1,3 +1,4 @@
 model*
+*.ptc
 __pycache__
 

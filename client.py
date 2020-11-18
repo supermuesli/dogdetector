@@ -19,7 +19,7 @@ def main():
 	dogs = '~/Downloads/dogsncats/dogs/1.jpg'
 
 	# customize your CNN here
-	model_path = 'model.ptc'
+	model_path = 'autoencoder.ptc'
 
 	with torch.no_grad():
 		# create a CNN
@@ -33,7 +33,7 @@ def main():
 		#	print(p)
 
 		# works with list of paths (which is more efficient with batches > 1)
-		sample = net.transform([('/home/muesli/Downloads/dogsncats/dogs/' + '%d.jpg' % i) for i in range(0, 100)])
+		sample = net.transform([('/home/kashim/Downloads/dogsncats/dogs/' + '%d.jpg' % i) for i in range(0, 100)])
 		for t in net(sample):
 			im = net.untransform(t)
 			im.show()
