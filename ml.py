@@ -1,6 +1,6 @@
 """ universal grayscale image classifier. see https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html """
 
-import os, logging, random, sys
+import os, logging, random, sys, math
 
 import torch
 import torch.nn as nn
@@ -166,17 +166,15 @@ class CNN(nn.Module):
 
 		# fully connected layer assuming maxpooling after every convolution.
 		# we try to learn 10 principal components
-		in_dim4 = 648 #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
+		in_dim4 = 9800 #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
 		out_dim4 = 10
 		self.fc1 = nn.Linear(in_dim4, out_dim4)
 
 		# </encoder>
 
 		# <decoder>
-
-		in_dim5 = out_dim4
-		out_dim5 = in_dim4		
-		self.fc2 = nn.Linear(in_dim5, out_dim5)
+	
+		self.fc2 = nn.Linear(out_dim4, in_dim4)
 
 		self.deconv1 = nn.ConvTranspose2d(out_dim3, in_dim3, kernel_size=kernel_size, padding=padding, stride=stride)
 		self.deconv2 = nn.ConvTranspose2d(out_dim2, in_dim2, kernel_size=kernel_size, padding=padding, stride=stride)
@@ -202,38 +200,28 @@ class CNN(nn.Module):
 	def forward(self, x):
 		# encode
 		
-		print(x.shape)
-		x = self.pool(F.relu(self.conv1(x)))
-		print(x.shape)
-		x = self.pool(F.relu(self.conv2(x)))
-		print(x.shape)
+		x = F.relu(self.conv1(x))
+		x = F.relu(self.conv2(x))
 		x = F.relu(self.conv3(x))
-		print(x.shape)
-
+		
 		# flatten and keep batchsize
+		shapey = x.size()
 		x = x.view(x.shape[0], -1)
 		
-		print(x.shape)
 		x = self.fc1(x)
 		
-		print(x.shape)
 		# decode
 		x = self.fc2(x)
-		print(x.shape)
 
 		# square'en and keep batchsize
-		x = x.view(x.shape[0], torch.sqrt(x.shape[1]), torch.sqrt(x.shape[1]))
+		x = x.view(x.shape[0], shapey[1], shapey[2], shapey[3])
 
-		x = self.pool(F.relu(self.deconv1(x)))
-		print(x.shape)
-		x = self.pool(F.relu(self.deconv2(x)))
-		print(x.shape)
-		x = self.pool(F.relu(self.deconv3(x)))
-		print(x.shape)
+		x = F.relu(self.deconv1(x))
+		x = F.relu(self.deconv2(x))
+		x = F.relu(self.deconv3(x))
 
 		# reshape to original imagesize and keep batchsize
 		x = x.view(x.size(0), 1, self.im_size, self.im_size)
-		print(x.shape)
 
 		return x
 
@@ -374,7 +362,7 @@ def main():
 	# customize your datasource here
 	dogs = sys.argv[1]     # TODO: use doc_opt instead of sys.argv
 	image_size = 32        # resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 0.05         # only use the first data_ratio*100% of the dataset
+	data_ratio = 0.1         # only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
 	batch_size = 512         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
