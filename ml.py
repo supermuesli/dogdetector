@@ -143,30 +143,29 @@ class CNN(nn.Module):
 		pool_size = 2
 		self.pool = nn.MaxPool2d(pool_size, pool_size)
 		
-		# prefarably multiple of pool_size
-		kernel_size = 4	
-		padding = kernel_size//2
+		kernel_size = 3	
+		padding = 0 # zero padding
 		stride = 1
 
 		# <encoder>
 
 		in_dim1 = 1   # because we only consider grayscale values (luminance)
-		out_dim1 = 32
+		out_dim1 = 10
 		amount_pools = 1
-		self.conv1 = nn.Conv2d(in_dim1, out_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
+		self.conv1 = nn.Conv2d(in_dim1, out_dim1, kernel_size=kernel_size, padding=padding, stride=stride, bias=False)
 		
 		in_dim2 = out_dim1
-		out_dim2 = 16
+		out_dim2 = 8
 		amount_pools += 1
-		self.conv2 = nn.Conv2d(in_dim2, out_dim2, kernel_size=kernel_size, padding=padding, stride=stride)
+		self.conv2 = nn.Conv2d(in_dim2, out_dim2, kernel_size=kernel_size, padding=padding, stride=stride, bias=False)
 
 		in_dim3 = out_dim2
-		out_dim3 = 8
+		out_dim3 = 6
 		self.conv3 = nn.Conv2d(in_dim3, out_dim3, kernel_size=kernel_size, padding=padding, stride=stride)
 
 		# fully connected layer assuming maxpooling after every convolution.
 		# we try to learn 10 principal components
-		in_dim4 = 9800 #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
+		in_dim4 =  4056 #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
 		out_dim4 = 10
 		self.fc1 = nn.Linear(in_dim4, out_dim4)
 
@@ -176,8 +175,8 @@ class CNN(nn.Module):
 	
 		self.fc2 = nn.Linear(out_dim4, in_dim4)
 
-		self.deconv1 = nn.ConvTranspose2d(out_dim3, in_dim3, kernel_size=kernel_size, padding=padding, stride=stride)
-		self.deconv2 = nn.ConvTranspose2d(out_dim2, in_dim2, kernel_size=kernel_size, padding=padding, stride=stride)
+		self.deconv1 = nn.ConvTranspose2d(out_dim3, in_dim3, kernel_size=kernel_size, padding=padding, stride=stride, bias=False)
+		self.deconv2 = nn.ConvTranspose2d(out_dim2, in_dim2, kernel_size=kernel_size, padding=padding, stride=stride, bias=False)
 		self.deconv3 = nn.ConvTranspose2d(out_dim1, in_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
 
 		# </decoder>
@@ -200,13 +199,13 @@ class CNN(nn.Module):
 	def forward(self, x):
 		# encode
 		
-		x = F.relu(self.conv1(x))
-		x = F.relu(self.conv2(x))
+		x = self.conv1(x)
+		x = self.conv2(x)
 		x = F.relu(self.conv3(x))
 		
 		# flatten and keep batchsize
 		shapey = x.size()
-		x = x.view(x.shape[0], -1)
+		x = x.view(shapey[0], -1)
 		
 		x = self.fc1(x)
 		
@@ -214,14 +213,24 @@ class CNN(nn.Module):
 		x = self.fc2(x)
 
 		# square'en and keep batchsize
-		x = x.view(x.shape[0], shapey[1], shapey[2], shapey[3])
+		x = x.view(shapey[0], shapey[1], shapey[2], shapey[3])
 
-		x = F.relu(self.deconv1(x))
-		x = F.relu(self.deconv2(x))
+		x = self.deconv1(x)
+		x = self.deconv2(x)
 		x = F.relu(self.deconv3(x))
 
 		# reshape to original imagesize and keep batchsize
-		x = x.view(x.size(0), 1, self.im_size, self.im_size)
+		x = x.view(shapey[0], 1, self.im_size, self.im_size)
+
+		"""
+		with torch.no_grad():
+			print(x[0].shape)
+			im = self.untransform(x[0])
+			im.show()
+			input()
+			im.close()
+		"""
+
 
 		return x
 
@@ -324,6 +333,13 @@ class CNN(nn.Module):
 				batch = torch.tensor([])
 				for im in im_batch:
 					batch = torch.cat((batch, self.transf(im).unsqueeze(0)))
+
+					
+					i = self.untransform(self.transf(im).unsqueeze(0))
+					i.show()
+					input()
+					i.close()
+					
 					
 				self.loss = self.criterion(self(batch), batch) 
 
@@ -379,7 +395,7 @@ def main():
 	model_path = 'autoencoder.ptc'
 	epochs = 1000000
 	learning_rate = 0.1
-	save_per_epoch = 100  # save model every 100 epochs
+	save_per_epoch = 10  # save model every 100 epochs
 
 	# create a CNN
 	net = CNN(im_size=image_size, lr=learning_rate, name='autoencoder')
