@@ -150,23 +150,23 @@ class CNN(nn.Module):
 		# <encoder>
 
 		in_dim1 = 1   # because we only consider grayscale values (luminance)
-		out_dim1 = 10
+		out_dim1 = 16
 		amount_pools = 1
-		self.conv1 = nn.Conv2d(in_dim1, out_dim1, kernel_size=kernel_size, padding=padding, stride=stride, bias=False)
+		self.conv1 = nn.Conv2d(in_dim1, out_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
 		
 		in_dim2 = out_dim1
-		out_dim2 = 8
+		out_dim2 = 16
 		amount_pools += 1
-		self.conv2 = nn.Conv2d(in_dim2, out_dim2, kernel_size=kernel_size, padding=padding, stride=stride, bias=False)
+		self.conv2 = nn.Conv2d(in_dim2, out_dim2, kernel_size=kernel_size, padding=padding, stride=stride)
 
 		in_dim3 = out_dim2
-		out_dim3 = 6
+		out_dim3 = 16
 		self.conv3 = nn.Conv2d(in_dim3, out_dim3, kernel_size=kernel_size, padding=padding, stride=stride)
 
 		# fully connected layer assuming maxpooling after every convolution.
 		# we try to learn 10 principal components
-		in_dim4 =  4056 #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
-		out_dim4 = 10
+		in_dim4 =  10816 #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
+		out_dim4 = 8
 		self.fc1 = nn.Linear(in_dim4, out_dim4)
 
 		# </encoder>
@@ -175,8 +175,8 @@ class CNN(nn.Module):
 	
 		self.fc2 = nn.Linear(out_dim4, in_dim4)
 
-		self.deconv1 = nn.ConvTranspose2d(out_dim3, in_dim3, kernel_size=kernel_size, padding=padding, stride=stride, bias=False)
-		self.deconv2 = nn.ConvTranspose2d(out_dim2, in_dim2, kernel_size=kernel_size, padding=padding, stride=stride, bias=False)
+		self.deconv1 = nn.ConvTranspose2d(out_dim3, in_dim3, kernel_size=kernel_size, padding=padding, stride=stride)
+		self.deconv2 = nn.ConvTranspose2d(out_dim2, in_dim2, kernel_size=kernel_size, padding=padding, stride=stride)
 		self.deconv3 = nn.ConvTranspose2d(out_dim1, in_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
 
 		# </decoder>
@@ -185,11 +185,13 @@ class CNN(nn.Module):
 		
 		# read https://openreview.net/pdf?id=B1Yy1BxCZ
 		self.optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=0.01)
-		#self.scheduler = optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=lr, max_lr=lr*100)
+		#self.scheduler = optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=lr/100000, max_lr=lr)
 
 		# gpu computation if possible, else cpu
+		"""
 		self.device = device
 		self.to(self.device)
+		"""
 
 		# gradient clipping in order to prevent nan values for loss
 		if clip_grad:
@@ -199,9 +201,9 @@ class CNN(nn.Module):
 	def forward(self, x):
 		# encode
 		
-		x = self.conv1(x)
-		x = self.conv2(x)
-		x = F.relu(self.conv3(x))
+		x = F.relu(self.conv1(x))
+		x = F.relu(self.conv2(x))
+		x = self.conv3(x)
 		
 		# flatten and keep batchsize
 		shapey = x.size()
@@ -216,21 +218,11 @@ class CNN(nn.Module):
 		x = x.view(shapey[0], shapey[1], shapey[2], shapey[3])
 
 		x = self.deconv1(x)
-		x = self.deconv2(x)
+		x = F.relu(self.deconv2(x))
 		x = F.relu(self.deconv3(x))
 
 		# reshape to original imagesize and keep batchsize
 		x = x.view(shapey[0], 1, self.im_size, self.im_size)
-
-		"""
-		with torch.no_grad():
-			print(x[0].shape)
-			im = self.untransform(x[0])
-			im.show()
-			input()
-			im.close()
-		"""
-
 
 		return x
 
@@ -283,15 +275,15 @@ class CNN(nn.Module):
 
 		# a list of paths was given
 		if type(path) == list:
-			im = self.im_transform(path[0])
-			batch = self.transf(im).unsqueeze(0)
-			im.close()
+			batch = torch.tensor([])
 
-			for i, p in enumerate(path):
-				if i > 0:
-					# see https://discuss.pytorch.org/t/concatenate-torch-tensor-along-given-dimension/2304
-					batch = torch.cat((batch, self.transf(self.im_transform(p)).unsqueeze(0)), 0)
-		
+			for p in path:
+				# see https://discuss.pytorch.org/t/concatenate-torch-tensor-along-given-dimension/2304
+				batch = torch.cat((batch, self.transf(self.im_transform(p))), 0)
+
+			batch = batch.unsqueeze(1)
+			print(batch.shape)
+
 		# a single path was given
 		else:
 			# add batch_dim (1)
@@ -326,33 +318,46 @@ class CNN(nn.Module):
 			for im_batch in training_loader:
 				self.optimizer.zero_grad() # don't forget to zero the gradient buffers per batch !
 				
-				#for im in im_batch:
-				#	im.show()
-				#	input()
-
 				batch = torch.tensor([])
 				for im in im_batch:
-					batch = torch.cat((batch, self.transf(im).unsqueeze(0)))
+					batch = torch.cat((batch, self.transf(im)))
 
-					
-					i = self.untransform(self.transf(im).unsqueeze(0))
+					"""
+					i = self.untransform(self.transf(im))
 					i.show()
 					input()
 					i.close()
+					"""
+
+				batch = batch.unsqueeze(1)
+
+				"""
+				for b in batch:
+					i = self.untransform(b)
+					i.show()
+					input()
+
+				"""
+				
+				for b in self(batch):
+					i = self.untransform(b)
+					i.show()
+					input()
 					
-					
+
 				self.loss = self.criterion(self(batch), batch) 
 
 				
-				# debugging loss
-				if self.epoch % 10 == 9:
-					logging.info('batch loss@batch_size: %f@%d\tepoch: %d' % (self.loss, batch.shape[0], self.epoch))
 				
 				self.loss.backward()   # backward propagate loss
 				
 				self.optimizer.step()  # update the parameters
 				#self.scheduler.step()  # update learning rate
-				training_loader.step() # update batch size
+				#training_loader.step() # update batch size
+				
+				# debugging loss
+				if self.epoch % 10 == 9:
+					logging.info('batch loss@batch_size: %f@%d\tepoch: %d' % (self.loss, batch.shape[0], self.epoch))
 				
 				# epoch is finished at this point
 				if self.epoch % save_per_epoch == save_per_epoch - 1:
@@ -368,19 +373,21 @@ def main():
 	log_level = logging.INFO
 	logging.basicConfig(level=log_level)
 
+	"""
 	# if CUDA available, use it
 	if torch.cuda.is_available():  
 		dev = 'cuda:0' 
 	else:  
 		dev = 'cpu'  
 	device = torch.device(dev) 
+	"""
 
 	# customize your datasource here
 	dogs = sys.argv[1]     # TODO: use doc_opt instead of sys.argv
 	image_size = 32        # resize and (black-border)-pad images to image_size x image_size
 	data_ratio = 0.1         # only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
-	batch_size = 512         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	batch_size = 256         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
 	#batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 
@@ -388,13 +395,13 @@ def main():
 	training_data = data_total[:int(data_ratio*train_test_ratio*len(data_total))]
 	
 	# data loaders (sexy iterators)
-	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, bs_multiplier=1, shuffle=True)
+	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, bs_multiplier=1.0001, shuffle=True)
 	
 
 	# customize your CNN here
 	model_path = 'autoencoder.ptc'
 	epochs = 1000000
-	learning_rate = 0.1
+	learning_rate = 0.00000000000001
 	save_per_epoch = 10  # save model every 100 epochs
 
 	# create a CNN
