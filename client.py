@@ -1,8 +1,10 @@
 """ image classifier client. """
 
-import os, sys
+import os, sys, time
 
+import matplotlib.pyplot as plt
 import torch
+import torchvision
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
@@ -14,6 +16,12 @@ from ml import CNN
 
 
 def main():
+	# if CUDA available, use it
+	if torch.cuda.is_available():  
+		dev = 'cuda:0' 
+	else:  
+		dev = 'cpu'  
+	device = torch.device(dev) #
 
 	# customize your datasource here
 	dogs = '~/Downloads/dogsncats/dogs/1.jpg'
@@ -23,7 +31,7 @@ def main():
 
 	with torch.no_grad():
 		# create a CNN
-		net = CNN()
+		net = CNN(device=device)
 		
 		# load an existing model if possible
 		net.load(model_path)
@@ -33,11 +41,20 @@ def main():
 		#	print(p)
 
 		# works with list of paths (which is more efficient with batches > 1)
-		sample = net.transform([('/home/muesli/Downloads/dogsncats/dogs/' + '%d.jpg' % i) for i in range(0, 100)])
-		for t in net(sample):
-			im = net.untransform(t)
-			im.show()
-			input('press enter to continue')
+		"""sample = net.transform([('D:\\dogsncats\\dogs\\' + '%d.jpg' % i) for i in range(8000, 9000)])
+		
+"""
+		plt.ion()
+
+		for i in range(10000):
+			sample = ((torch.rand(64) - 0.5)*2).unsqueeze(0).cuda()
+		
+			grid = torchvision.utils.make_grid(net(sample).cpu(), nrow=100)
+			
+			plt.imshow(net.untransform(grid))
+			plt.show()
+			plt.pause(0.16)
+
 
 if __name__ == '__main__':
 	main()

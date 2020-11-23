@@ -126,7 +126,7 @@ class DynamicBatchDataLoader():
 class CNN(nn.Module):
 	""" Convolutional Neural Network for classification of grayscale images. """
 
-	def __init__(self, device='cpu', im_size=32, lr=0.01, epoch=0, transf=transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]), name='model', clip_grad=False):
+	def __init__(self, device='cpu', im_size=32, lr=0.01, epoch=0, transf=transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]), name='autoencoder', clip_grad=False):
 		""" 
 			Args:
 
@@ -137,7 +137,7 @@ class CNN(nn.Module):
 		self.im_size = im_size
 		self.epoch = epoch
 		self.transf = transf
-		self.name = name
+		self.model_name = name
 
 		# network topology and architecture
 		pool_size = 2
@@ -157,7 +157,7 @@ class CNN(nn.Module):
 		# fully connected layer assuming maxpooling after every convolution.
 		# we try to learn 10 principal components
 		in_dim4 =  14400 #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
-		out_dim4 = 8
+		out_dim4 = 64
 		self.fc1 = nn.Linear(in_dim4, out_dim4)
 
 		# </encoder>
@@ -177,10 +177,9 @@ class CNN(nn.Module):
 		#self.scheduler = optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=lr/100000, max_lr=lr)
 
 		# gpu computation if possible, else cpu
-		"""
+		
 		self.device = device
-		self.to(self.device)
-		"""
+		self.cuda()
 
 		# gradient clipping in order to prevent nan values for loss
 		if clip_grad:
@@ -188,26 +187,29 @@ class CNN(nn.Module):
 				p.register_hook(lambda grad: torch.clamp(grad, -100, 100))
 
 	def forward(self, x):
-		# encode
 		
-		x = F.relu(self.conv1(x))
+
+		"""
+		# encode
+		x = self.conv1(x)
 		
 		# flatten and keep batchsize
 		shapey = x.size()
 		x = x.view(shapey[0], -1)
 		
 		x = self.fc1(x)
+		"""
 		
 		# decode
 		x = self.fc2(x)
 
 		# square'en and keep batchsize
-		x = x.view(shapey[0], shapey[1], shapey[2], shapey[3])
+		x = x.view(x.shape[0], 16, 30, 30)
 
-		x = F.relu(self.deconv3(x))
+		x = self.deconv3(x)
 
 		# reshape to original imagesize and keep batchsize
-		x = x.view(shapey[0], 1, self.im_size, self.im_size)
+		x = x.view(x.shape[0], 1, self.im_size, self.im_size)
 
 		return x
 
@@ -217,7 +219,7 @@ class CNN(nn.Module):
 		if path:
 			filename = path + '.ptc'
 		else:
-			filename = self.name + '.ptc'
+			filename = self.model_name + '.ptc'
 
 		logging.warning('writing model into %s, do not kill this process or %s will be corrupted!' % (filename, filename))
 		
@@ -234,7 +236,7 @@ class CNN(nn.Module):
 		checkpoint = torch.load(path)
 		self.__init__(im_size=checkpoint['im_size'], epoch=checkpoint['epoch'])
 		self.load_state_dict(checkpoint['model_state_dict'])
-		#self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+		self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
 	def im_transform(self, path):
 		""" Open, resize and pad image at given path to self.im_size. """
@@ -266,7 +268,7 @@ class CNN(nn.Module):
 				# see https://discuss.pytorch.org/t/concatenate-torch-tensor-along-given-dimension/2304
 				batch = torch.cat((batch, self.transf(self.im_transform(p))), 0)
 
-			batch = batch.unsqueeze(1)
+			batch = batch.unsqueeze(1).cuda()
 			print(batch.shape)
 
 		# a single path was given
@@ -313,16 +315,16 @@ class CNN(nn.Module):
 					i.close()
 					"""
 
-				batch = batch.unsqueeze(1)
+				batch = batch.unsqueeze(1).cuda()
 
 				"""
-				for b in batch:
+				for b in batch.cpu():
 					i = self.untransform(b)
 					i.show()
 					input()
 
 				
-				for b in self(batch):
+				for b in self(batch).cpu():
 					i = self.untransform(b)
 					i.show()
 					input()
@@ -338,7 +340,7 @@ class CNN(nn.Module):
 				
 				self.optimizer.step()  # update the parameters
 				#self.scheduler.step()  # update learning rate
-				#training_loader.step() # update batch size
+				training_loader.step() # update batch size
 				
 				# debugging loss
 				if self.epoch % 10 == 9:
@@ -357,22 +359,20 @@ def main():
 	# customize logging
 	log_level = logging.INFO
 	logging.basicConfig(level=log_level)
-
-	"""
+#
 	# if CUDA available, use it
 	if torch.cuda.is_available():  
 		dev = 'cuda:0' 
 	else:  
 		dev = 'cpu'  
-	device = torch.device(dev) 
-	"""
+	device = torch.device(dev) #
 
 	# customize your datasource here
 	dogs = sys.argv[1]     # TODO: use doc_opt instead of sys.argv
 	image_size = 32        # resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 0.1         # only use the first data_ratio*100% of the dataset
+	data_ratio = 1        # only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
-	batch_size = 128         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	batch_size = 64         # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
 	#batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 
@@ -386,14 +386,14 @@ def main():
 	# customize your CNN here
 	model_path = 'autoencoder.ptc'
 	epochs = 1000000
-	learning_rate = 0.00001
+	learning_rate = 0.001
 	save_per_epoch = 10  # save model every 100 epochs
 
 	# create a CNN
-	net = CNN(im_size=image_size, lr=learning_rate, name='autoencoder')
+	net = CNN(im_size=image_size, lr=learning_rate, name='autoencoder', device=device)
 
 	# load an existing model if possible
-	net.load(model_path)
+	#net.load(model_path)
 
 	# train the model
 	net.train()
