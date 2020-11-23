@@ -16,12 +16,6 @@ from ml import CNN
 
 
 def main():
-	# if CUDA available, use it
-	if torch.cuda.is_available():  
-		dev = 'cuda:0' 
-	else:  
-		dev = 'cpu'  
-	device = torch.device(dev) #
 
 	# customize your datasource here
 	dogs = '~/Downloads/dogsncats/dogs/1.jpg'
@@ -31,7 +25,7 @@ def main():
 
 	with torch.no_grad():
 		# create a CNN
-		net = CNN(device=device)
+		net = CNN()
 		
 		# load an existing model if possible
 		net.load(model_path)
@@ -41,20 +35,26 @@ def main():
 		#	print(p)
 
 		# works with list of paths (which is more efficient with batches > 1)
-		"""sample = net.transform([('D:\\dogsncats\\dogs\\' + '%d.jpg' % i) for i in range(8000, 9000)])
+		sample = net.transform([('/home/kashim/Downloads/dogsncats/dogs/' + '%d.jpg' % i) for i in range(8000, 9000)])
 		
-"""
+
+		"""
 		plt.ion()
 
-		for i in range(10000):
-			sample = ((torch.rand(64) - 0.5)*2).unsqueeze(0).cuda()
-		
-			grid = torchvision.utils.make_grid(net(sample).cpu(), nrow=100)
-			
-			plt.imshow(net.untransform(grid))
-			plt.show()
-			plt.pause(0.16)
 
+		for i in range(1000):
+			#sample = ((torch.tensor([i/1000 for j in range(128)]) - 0.5)*2).unsqueeze(0)
+		
+			sample = ((torch.rand(128)-0.5)*2).unsqueeze(0)
+
+
+		"""
+		grid = torchvision.utils.make_grid(net(sample), nrow=100)
+		
+		plt.imshow(net.untransform(grid))
+		plt.show()
+		plt.pause(0.16)
+		
 
 if __name__ == '__main__':
 	main()

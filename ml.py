@@ -157,14 +157,16 @@ class CNN(nn.Module):
 		# fully connected layer assuming maxpooling after every convolution.
 		# we try to learn 10 principal components
 		in_dim4 =  14400 #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
-		out_dim4 = 64
+		out_dim4 = 128
 		self.fc1 = nn.Linear(in_dim4, out_dim4)
+
+
 
 		# </encoder>
 
 		# <decoder>
 	
-		self.fc2 = nn.Linear(out_dim4, in_dim4)
+		self.fc3 = nn.Linear(out_dim4, in_dim4)
 
 		self.deconv3 = nn.ConvTranspose2d(out_dim1, in_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
 
@@ -179,7 +181,7 @@ class CNN(nn.Module):
 		# gpu computation if possible, else cpu
 		
 		self.device = device
-		self.cuda()
+		self.to(self.device)
 
 		# gradient clipping in order to prevent nan values for loss
 		if clip_grad:
@@ -189,7 +191,6 @@ class CNN(nn.Module):
 	def forward(self, x):
 		
 
-		"""
 		# encode
 		x = self.conv1(x)
 		
@@ -198,10 +199,9 @@ class CNN(nn.Module):
 		x = x.view(shapey[0], -1)
 		
 		x = self.fc1(x)
-		"""
 		
 		# decode
-		x = self.fc2(x)
+		x = self.fc3(x)
 
 		# square'en and keep batchsize
 		x = x.view(x.shape[0], 16, 30, 30)
@@ -210,6 +210,8 @@ class CNN(nn.Module):
 
 		# reshape to original imagesize and keep batchsize
 		x = x.view(x.shape[0], 1, self.im_size, self.im_size)
+		"""
+		"""
 
 		return x
 
@@ -268,7 +270,7 @@ class CNN(nn.Module):
 				# see https://discuss.pytorch.org/t/concatenate-torch-tensor-along-given-dimension/2304
 				batch = torch.cat((batch, self.transf(self.im_transform(p))), 0)
 
-			batch = batch.unsqueeze(1).cuda()
+			batch = batch.unsqueeze(1).to(self.device)
 			print(batch.shape)
 
 		# a single path was given
@@ -315,7 +317,7 @@ class CNN(nn.Module):
 					i.close()
 					"""
 
-				batch = batch.unsqueeze(1).cuda()
+				batch = batch.unsqueeze(1).to(self.device)
 
 				"""
 				for b in batch.cpu():
@@ -364,8 +366,7 @@ def main():
 	if torch.cuda.is_available():  
 		dev = 'cuda:0' 
 	else:  
-		dev = 'cpu'  
-	device = torch.device(dev) #
+		dev = 'cpu'   
 
 	# customize your datasource here
 	dogs = sys.argv[1]     # TODO: use doc_opt instead of sys.argv
@@ -390,10 +391,10 @@ def main():
 	save_per_epoch = 10  # save model every 100 epochs
 
 	# create a CNN
-	net = CNN(im_size=image_size, lr=learning_rate, name='autoencoder', device=device)
+	net = CNN(im_size=image_size, lr=learning_rate, name='autoencoder', device='cpu')
 
 	# load an existing model if possible
-	#net.load(model_path)
+	net.load(model_path)
 
 	# train the model
 	net.train()
