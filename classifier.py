@@ -61,7 +61,7 @@ class ImageGrayScale():
 
 			return sample
 		else:
-			logging.critical('CNN.__getitem__ is not implemented for idx of type %s ' % type(idx))
+			logging.critical('DogDetector.__getitem__ is not implemented for idx of type %s ' % type(idx))
 
 		return None
 
@@ -123,16 +123,16 @@ class DynamicBatchDataLoader():
 			self.batch_size = int(self.bs_value)
 
 		
-class CNN(nn.Module):
+class DogDetector(nn.Module):
 	""" Convolutional Neural Network for classification of grayscale images. """
 
-	def __init__(self, device='cpu', im_size=32, lr=0.01, epoch=0, transf=transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]), name='autoencoder', clip_grad=False):
+	def __init__(self, device='cpu', im_size=32, lr=0.01, epoch=0, transf=transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]), name='classifier', clip_grad=False):
 		""" 
 			Args:
 
 		"""
 
-		super(CNN, self).__init__()
+		super(DogDetector, self).__init__()
 		
 		self.im_size = im_size
 		self.epoch = epoch
@@ -140,50 +140,23 @@ class CNN(nn.Module):
 		self.model_name = name
 
 		# network topology and architecture
-		pool_size = 2
-		self.pool = nn.MaxPool2d(pool_size, pool_size)
 		
-		kernel_size = 3	
-		padding = 0 # zero padding
-		stride = 1
-
-		# <encoder>
-
-		in_dim1 = 1   # because we only consider grayscale values (luminance)
-		out_dim1 = 8
-		amount_pools = 1
-		self.conv1 = nn.Conv2d(in_dim1, out_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
+		in_dim1 =  128 
+		out_dim1 = 1024
+		self.fc1 = nn.Linear(in_dim1, out_dim1)
 		
-		# fully connected layer assuming maxpooling after every convolution.
-		# we try to learn 10 principal components
-		in_dim4 =  7200 #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
-		out_dim4 = 128
-		self.fc1 = nn.Linear(in_dim4, out_dim4)
+		in_dim2 =  out_dim1 
+		out_dim2 = 512
+		self.fc2 = nn.Linear(in_dim2, out_dim2)
+		
+		in_dim3 =  out_dim2 
+		out_dim3 = 1
+		self.fc3 = nn.Linear(in_dim3, out_dim3)
 
-		self.encode = nn.Sequential(
-			self.conv1,
-			self.Flatten(),
-			self.fc1
-		)
-
-		# </encoder>
-
-		# <decoder>
-	
-		self.fc3 = nn.Linear(out_dim4, in_dim4)
-
-		self.deconv3 = nn.ConvTranspose2d(out_dim1, in_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
-
-		self.decode = nn.Sequential(
-			self.fc3,
-			self.Squaren(),
-			self.deconv3,
-			self.Imagefy(self.im_size)
-		)
 
 		# </decoder>
 
-		self.criterion = nn.MSELoss()
+		self.criterion = nn.BCELoss()
 		
 		# read https://openreview.net/pdf?id=B1Yy1BxCZ
 		self.optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=0.00001)
@@ -199,30 +172,16 @@ class CNN(nn.Module):
 			for p in self.parameters():
 				p.register_hook(lambda grad: torch.clamp(grad, -100, 100))
 
-	class Flatten(torch.nn.Module):
-		def forward(self, x):
-			return x.view(x.shape[0], -1)
-
-	class Squaren(torch.nn.Module):
-		def forward(self, x):
-			return x.view(x.shape[0], 8, 30, 30)
-
-	class Imagefy(torch.nn.Module):
-		def __init__(self, im_size):
-			super(CNN.Imagefy, self).__init__()
-			self.im_size = im_size
-
-		def forward(self, x):
-			return x.view(x.shape[0], 1, self.im_size, self.im_size)
 
 	def forward(self, x):
-		x = self.encode(x)
-		x = self.decode(x)
+		x = F.relu(self.fc1(x))
+		x = self.fc2(x)
+		x = F.relu(self.fc3(x))
 		return x
 
 
 	def save(self, path=None):
-		""" Save the CNN model. """
+		""" Save the DogDetector model. """
 
 		if path:
 			filename = path + '.pth'
@@ -297,7 +256,7 @@ class CNN(nn.Module):
 		return transforms.ToPILImage()((tensor+1)/2)
 
 	def fit(self, epochs, training_loader, save_per_epoch=1):
-		""" Train the CNN for the given number of epochs on the given training dataset. 
+		""" Train the DogDetector for the given number of epochs on the given training dataset. 
 			
 		Args:
 			epochs (int)								  : Number of training epochs.
@@ -389,14 +348,14 @@ def main():
 	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, bs_multiplier=1.0001, shuffle=True)
 	
 
-	# customize your CNN here
-	model_path = 'autoencoder.pth'
+	# customize your DogDetector here
+	model_path = 'classifier.pth'
 	epochs = 1000000
 	learning_rate = 0.001
 	save_per_epoch = 10  # save model every 100 epochs
 
-	# create a CNN
-	net = CNN(im_size=image_size, lr=learning_rate, name='autoencoder', device='cpu')
+	# create a DogDetector
+	net = DogDetector(im_size=image_size, lr=learning_rate, name='classifier', device='cpu')
 
 	# load an existing model if possible
 	#net.load(model_path)
