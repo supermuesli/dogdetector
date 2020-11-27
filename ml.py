@@ -2,6 +2,7 @@
 
 import os, logging, random, sys, math
 
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,6 +10,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 from PIL import Image
+from bhtsne import tsne
 
 class ImageGrayScale():
 	""" Load any collection of images, but only their grayscale values. """
@@ -61,7 +63,7 @@ class ImageGrayScale():
 
 			return sample
 		else:
-			logging.critical('CNN.__getitem__ is not implemented for idx of type %s ' % type(idx))
+			logging.critical('GrayVAE.__getitem__ is not implemented for idx of type %s ' % type(idx))
 
 		return None
 
@@ -123,16 +125,16 @@ class DynamicBatchDataLoader():
 			self.batch_size = int(self.bs_value)
 
 		
-class CNN(nn.Module):
+class GrayVAE(nn.Module):
 	""" Convolutional Neural Network for classification of grayscale images. """
 
-	def __init__(self, device='cpu', im_size=32, lr=0.01, epoch=0, transf=transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]), name='autoencoder', clip_grad=False):
+	def __init__(self, device='cpu', im_size=32, lr=0.01, epoch=0, transf=transforms.Compose([transforms.ToTensor()]), name='autoencoder', clip_grad=False):
 		""" 
 			Args:
 
 		"""
 
-		super(CNN, self).__init__()
+		super(GrayVAE, self).__init__()
 		
 		self.im_size = im_size
 		self.epoch = epoch
@@ -149,35 +151,56 @@ class CNN(nn.Module):
 
 		# <encoder>
 
-		in_dim1 = 1   # because we only consider grayscale values (luminance)
+		in_dim1 = 1   
 		out_dim1 = 8
-		amount_pools = 1
 		self.conv1 = nn.Conv2d(in_dim1, out_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
 		
+		in_dim2 = out_dim1   
+		out_dim2 = 8
+		self.conv2 = nn.Conv2d(in_dim2, out_dim2, kernel_size=kernel_size, padding=padding, stride=stride)
+
+		in_dim3 = out_dim1   
+		out_dim3 = 4
+		self.conv3 = nn.Conv2d(in_dim3, out_dim3, kernel_size=kernel_size, padding=padding, stride=stride)
+
 		# fully connected layer assuming maxpooling after every convolution.
 		# we try to learn 10 principal components
-		in_dim4 =  7200 #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
-		out_dim4 = 128
+		in_dim4 =  13456  #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
+		out_dim4 = 64
 		self.fc1 = nn.Linear(in_dim4, out_dim4)
 
 		self.encode = nn.Sequential(
 			self.conv1,
+			nn.LeakyReLU(inplace=True),
+			self.conv2,
+			nn.LeakyReLU(inplace=True),
+			self.conv3,
+			nn.LeakyReLU(inplace=True),
 			self.Flatten(),
-			self.fc1
+			self.fc1,
+			nn.LeakyReLU(inplace=True),
 		)
 
 		# </encoder>
 
 		# <decoder>
 	
-		self.fc3 = nn.Linear(out_dim4, in_dim4)
+		self.fc2 = nn.Linear(out_dim4, in_dim4)
 
+		self.deconv1 = nn.ConvTranspose2d(out_dim3, in_dim3, kernel_size=kernel_size, padding=padding, stride=stride)
+		self.deconv2 = nn.ConvTranspose2d(out_dim2, in_dim2, kernel_size=kernel_size, padding=padding, stride=stride)
 		self.deconv3 = nn.ConvTranspose2d(out_dim1, in_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
 
 		self.decode = nn.Sequential(
-			self.fc3,
+			self.fc2,
+			nn.LeakyReLU(inplace=True),
 			self.Squaren(),
+			self.deconv1,
+			nn.LeakyReLU(inplace=True),
+			self.deconv2,
+			nn.LeakyReLU(inplace=True),
 			self.deconv3,
+			nn.ReLU(inplace=True),
 			self.Imagefy(self.im_size)
 		)
 
@@ -201,15 +224,16 @@ class CNN(nn.Module):
 
 	class Flatten(torch.nn.Module):
 		def forward(self, x):
+			#print(x.shape) # uncomment if you need to update Squaren shape
 			return x.view(x.shape[0], -1)
 
 	class Squaren(torch.nn.Module):
 		def forward(self, x):
-			return x.view(x.shape[0], 8, 30, 30)
+			return x.view(x.shape[0], 4, 58, 58)
 
 	class Imagefy(torch.nn.Module):
 		def __init__(self, im_size):
-			super(CNN.Imagefy, self).__init__()
+			super(GrayVAE.Imagefy, self).__init__()
 			self.im_size = im_size
 
 		def forward(self, x):
@@ -222,7 +246,7 @@ class CNN(nn.Module):
 
 
 	def save(self, path=None):
-		""" Save the CNN model. """
+		""" Save the GrayVAE model. """
 
 		if path:
 			filename = path + '.pth'
@@ -294,10 +318,38 @@ class CNN(nn.Module):
 
 		logging.warning('note that net.untransform only works on the default transform (net.transf)')
 
-		return transforms.ToPILImage()((tensor+1)/2)
+		return transforms.ToPILImage()(tensor)
+
+	def show_tsne(self):
+		dogs = self.transform([('/home/kashim/Downloads/dogsncats/dogs/' + ('%d' % i) + '.jpg' ) for i in range(9000, 9100)])
+		cats = self.transform([('/home/kashim/Downloads/dogsncats/cats/' + ('%d' % i) + '.jpg' ) for i in range(9000, 9100)])
+		cars = self.transform([('/home/kashim/Downloads/dogsncats/cars/' + ('%d' % i).zfill(5) + '.jpg' ) for i in range(1, 101)])
+
+		with torch.no_grad():
+			encoded_dogs = self.encode(dogs)
+			encoded_cats = self.encode(cats)
+			encoded_cars = self.encode(cars)
+			encodings = torch.cat((encoded_dogs, encoded_cats, encoded_cars)).double()
+			print(encodings.shape)
+			Y = tsne(encodings)
+
+			plt.clf() # https://stackoverflow.com/questions/8213522/when-to-use-cla-clf-or-close-for-clearing-a-plot-in-matplotlib
+			p1 = plt.scatter(Y[:100, 0], Y[:100, 1], color='blue')
+			p2 = plt.scatter(Y[100:200, 0], Y[100:200, 1], color='red')
+			p3 = plt.scatter(Y[200:300, 0], Y[200:300, 1], color='green')
+
+			plt.legend((p1, p2, p3),
+				('Dog', 'Cat', 'Car'),
+				scatterpoints=1,
+				loc='lower right',
+				ncol=3,
+				fontsize=8)
+
+			plt.show()
+			plt.pause(0.000000001)
 
 	def fit(self, epochs, training_loader, save_per_epoch=1):
-		""" Train the CNN for the given number of epochs on the given training dataset. 
+		""" Train the GrayVAE for the given number of epochs on the given training dataset. 
 			
 		Args:
 			epochs (int)								  : Number of training epochs.
@@ -315,29 +367,10 @@ class CNN(nn.Module):
 				for im in im_batch:
 					batch = torch.cat((batch, self.transf(im)))
 
-					"""
-					i = self.untransform(self.transf(im))
-					i.show()
-					input()
-					i.close()
-					"""
 
 				batch = batch.unsqueeze(1).to(self.device)
 
-				"""
-				for b in batch.cpu():
-					i = self.untransform(b)
-					i.show()
-					input()
-
-				
-				for b in self(batch).cpu():
-					i = self.untransform(b)
-					i.show()
-					input()
-				"""
 					
-
 				self.loss = self.criterion(self(batch), batch) 
 
 				
@@ -347,15 +380,14 @@ class CNN(nn.Module):
 				
 				self.optimizer.step()  # update the parameters
 				#self.scheduler.step()  # update learning rate
-				training_loader.step() # update batch size
+				#training_loader.step() # update batch size
 				
 				# debugging loss
-				if self.epoch % 10 == 9:
+				if self.epoch % 100 == 99:
 					logging.info('batch loss@batch_size: %f@%d\tepoch: %d' % (self.loss, batch.shape[0], self.epoch))
-				
-				# epoch is finished at this point
-				if self.epoch % save_per_epoch == save_per_epoch - 1:
+					self.show_tsne()
 					self.save()
+				
 
 				self.epoch += 1
 				if self.epoch == epochs:
@@ -375,10 +407,10 @@ def main():
 
 	# customize your datasource here
 	dogs = sys.argv[1]	 # TODO: use doc_opt instead of sys.argv
-	image_size = 32		# resize and (black-border)-pad images to image_size x image_size
+	image_size = 64		# resize and (black-border)-pad images to image_size x image_size
 	data_ratio = 1		# only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
-	batch_size = 64		 # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	batch_size = 32		 # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
 	#batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 
@@ -389,19 +421,20 @@ def main():
 	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, bs_multiplier=1.0001, shuffle=True)
 	
 
-	# customize your CNN here
+	# customize your GrayVAE here
 	model_path = 'autoencoder.pth'
 	epochs = 1000000
 	learning_rate = 0.001
 	save_per_epoch = 10  # save model every 100 epochs
 
-	# create a CNN
-	net = CNN(im_size=image_size, lr=learning_rate, name='autoencoder', device='cpu')
+	# create a GrayVAE
+	net = GrayVAE(im_size=image_size, lr=learning_rate, name='autoencoder', device='cpu')
 
 	# load an existing model if possible
 	#net.load(model_path)
 
 	# train the model
+	plt.ion() # needed for t-sne (t-distributed stochastic neighbourhood embedding encoding) plotting
 	net.train()
 	net.fit(epochs, training_loader, save_per_epoch=save_per_epoch)
 

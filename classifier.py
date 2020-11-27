@@ -10,6 +10,8 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 from PIL import Image
 
+from ml import GrayVAE
+
 class ImageGrayScale():
 	""" Load any collection of images, but only their grayscale values. """
 
@@ -126,7 +128,7 @@ class DynamicBatchDataLoader():
 class DogDetector(nn.Module):
 	""" Convolutional Neural Network for classification of grayscale images. """
 
-	def __init__(self, device='cpu', im_size=32, lr=0.01, epoch=0, transf=transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]), name='classifier', clip_grad=False):
+	def __init__(self, device='cpu', im_size=32, lr=0.01, epoch=0, transf=transforms.Compose([transforms.ToTensor()]), name='classifier', clip_grad=False):
 		""" 
 			Args:
 
@@ -140,8 +142,13 @@ class DogDetector(nn.Module):
 		self.model_name = name
 
 		# network topology and architecture
-		
-		in_dim1 =  128 
+
+		# feature extractor
+		self.vae = GrayVAE()
+		self.vae.load('autoencoder.pth')
+		self.vae.eval()
+
+		in_dim1 =  256 
 		out_dim1 = 1024
 		self.fc1 = nn.Linear(in_dim1, out_dim1)
 		
@@ -150,11 +157,12 @@ class DogDetector(nn.Module):
 		self.fc2 = nn.Linear(in_dim2, out_dim2)
 		
 		in_dim3 =  out_dim2 
-		out_dim3 = 1
+		out_dim3 = 256
 		self.fc3 = nn.Linear(in_dim3, out_dim3)
-
-
-		# </decoder>
+		
+		in_dim4 =  out_dim3 
+		out_dim4 = 1
+		self.fc4 = nn.Linear(in_dim4, out_dim4)
 
 		self.criterion = nn.BCELoss()
 		
@@ -173,10 +181,15 @@ class DogDetector(nn.Module):
 				p.register_hook(lambda grad: torch.clamp(grad, -100, 100))
 
 
+
+
 	def forward(self, x):
-		x = F.relu(self.fc1(x))
-		x = self.fc2(x)
-		x = F.relu(self.fc3(x))
+		x = self.vae.encode(x)
+
+		x = self.fc1(x)
+		x = torch.sigmoid(self.fc2(x))
+		x = self.fc3(x)
+		x = torch.sigmoid(self.fc4(x))
 		return x
 
 
@@ -192,6 +205,7 @@ class DogDetector(nn.Module):
 		
 		torch.save({
 			'model_state_dict': self.state_dict(),
+			'vae_state_dict': self.vae.state_dict(),
 			'optimizer_state_dict': self.optimizer.state_dict(), 
 			'im_size': self.im_size,
 			'epoch': self.epoch
@@ -204,6 +218,9 @@ class DogDetector(nn.Module):
 		self.__init__(im_size=checkpoint['im_size'], epoch=checkpoint['epoch'])
 		self.load_state_dict(checkpoint['model_state_dict'])
 		self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+		self.vae.load_state_dict(checkpoint['vae_state_dict'])
+		self.vae.eval()
 
 	def im_transform(self, path):
 		""" Open, resize and pad image at given path to self.im_size. """
@@ -253,7 +270,7 @@ class DogDetector(nn.Module):
 
 		logging.warning('note that net.untransform only works on the default transform (net.transf)')
 
-		return transforms.ToPILImage()((tensor+1)/2)
+		return transforms.ToPILImage()(tensor)
 
 	def fit(self, epochs, training_loader, save_per_epoch=1):
 		""" Train the DogDetector for the given number of epochs on the given training dataset. 
@@ -269,37 +286,42 @@ class DogDetector(nn.Module):
 		continue_training = True
 		while continue_training:
 			for im_batch in training_loader:
-				
+
 				batch = torch.tensor([])
 				for im in im_batch:
 					batch = torch.cat((batch, self.transf(im)))
 
-					"""
-					i = self.untransform(self.transf(im))
-					i.show()
-					input()
-					i.close()
-					"""
+				batch = batch.unsqueeze(1)
 
-				batch = batch.unsqueeze(1).to(self.device)
-
-				"""
-				for b in batch.cpu():
-					i = self.untransform(b)
-					i.show()
-					input()
-
+				# outputs if the batch is left as is (batch contains only positive samples at this point)
+				target = torch.tensor([[1] for b in range(batch.shape[0])]) # class 1 is a dog
 				
-				for b in self(batch).cpu():
-					i = self.untransform(b)
-					i.show()
-					input()
-				"""
-					
+				for b in range(len(batch)):
 
-				self.loss = self.criterion(self(batch), batch) 
+					# with some probability, we want to introduce negative samples, but to prevent
+					# predictability based on class distribution in the training dataset, the randomness
+					# is supposed to be uniformly random as well
+					if random.random() < 0.5:
+						if False:
+							for color_channel in range(len(batch[b])):
+								for row in range(len(batch[b][color_channel])):
+									# black 
+									batch[b][color_channel][row] = torch.tensor([-1 for j in range(self.im_size)])
+						
+						else:
+							for color_channel in range(len(batch[b])):
+								for row in range(len(batch[b][color_channel])):	
+									# noise
+									batch[b][color_channel][row] = torch.tensor([2*random.random()-1 for j in range(self.im_size)])
 
-				
+						# image changes, so output changes to class 1
+						target[b] = torch.tensor([0]) # class 0 is not a dog
+
+				batch.to(self.device)
+				target.to(self.device)
+	
+				self.loss = self.criterion(self(batch), target.float()) # note that self(batch) outputs the probability of the input being a dog, 
+				                                                                     # while target holds the actual class of the input
 				
 				self.optimizer.zero_grad() # don't forget to zero the gradient buffers per batch !
 				self.loss.backward()   # backward propagate loss
@@ -310,7 +332,7 @@ class DogDetector(nn.Module):
 				
 				# debugging loss
 				if self.epoch % 10 == 9:
-					logging.info('batch loss@batch_size: %f@%d\tepoch: %d' % (self.loss, batch.shape[0], self.epoch))
+					logging.info('batch loss@batch_size: %f@%d\tmini-batch: %d' % (self.loss, batch.shape[0], self.epoch))
 				
 				# epoch is finished at this point
 				if self.epoch % save_per_epoch == save_per_epoch - 1:
@@ -334,7 +356,7 @@ def main():
 
 	# customize your datasource here
 	dogs = sys.argv[1]	 # TODO: use doc_opt instead of sys.argv
-	image_size = 32		# resize and (black-border)-pad images to image_size x image_size
+	image_size = 64		# resize and (black-border)-pad images to image_size x image_size
 	data_ratio = 1		# only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
 	batch_size = 64		 # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
@@ -345,7 +367,7 @@ def main():
 	training_data = data_total[:int(data_ratio*train_test_ratio*len(data_total))]
 	
 	# data loaders (sexy iterators)
-	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, bs_multiplier=1.0001, shuffle=True)
+	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, bs_multiplier=1.001, shuffle=True)
 	
 
 	# customize your DogDetector here
