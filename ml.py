@@ -152,21 +152,21 @@ class GrayVAE(nn.Module):
 		# <encoder>
 
 		in_dim1 = 1   
-		out_dim1 = 8
+		out_dim1 = 16
 		self.conv1 = nn.Conv2d(in_dim1, out_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
 		
 		in_dim2 = out_dim1   
-		out_dim2 = 8
+		out_dim2 = 16
 		self.conv2 = nn.Conv2d(in_dim2, out_dim2, kernel_size=kernel_size, padding=padding, stride=stride)
 
 		in_dim3 = out_dim1   
-		out_dim3 = 4
+		out_dim3 = 16
 		self.conv3 = nn.Conv2d(in_dim3, out_dim3, kernel_size=kernel_size, padding=padding, stride=stride)
 
 		# fully connected layer assuming maxpooling after every convolution.
 		# we try to learn 10 principal components
-		in_dim4 =  13456  #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
-		out_dim4 = 64
+		in_dim4 =  53824  #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
+		out_dim4 = 4096
 		self.fc1 = nn.Linear(in_dim4, out_dim4)
 
 		self.encode = nn.Sequential(
@@ -229,7 +229,7 @@ class GrayVAE(nn.Module):
 
 	class Squaren(torch.nn.Module):
 		def forward(self, x):
-			return x.view(x.shape[0], 4, 58, 58)
+			return x.view(x.shape[0], 16, 58, 58)
 
 	class Imagefy(torch.nn.Module):
 		def __init__(self, im_size):
@@ -240,6 +240,8 @@ class GrayVAE(nn.Module):
 			return x.view(x.shape[0], 1, self.im_size, self.im_size)
 
 	def forward(self, x):
+		x = self.encode(x)
+		x = self.decode(x)
 		x = self.encode(x)
 		x = self.decode(x)
 		return x
