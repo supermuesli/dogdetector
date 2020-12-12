@@ -152,20 +152,20 @@ class GrayVAE(nn.Module):
 		# <encoder>
 
 		in_dim1 = 1   
-		out_dim1 = 16
+		out_dim1 = 8
 		self.conv1 = nn.Conv2d(in_dim1, out_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
 		
 		in_dim2 = out_dim1   
-		out_dim2 = 16
+		out_dim2 = 8 # NOTE out_dim2 has to be larger than or equal to in_dim2 !
 		self.conv2 = nn.Conv2d(in_dim2, out_dim2, kernel_size=kernel_size, padding=padding, stride=stride)
 
 		in_dim3 = out_dim1   
-		out_dim3 = 16
+		out_dim3 = 8
 		self.conv3 = nn.Conv2d(in_dim3, out_dim3, kernel_size=kernel_size, padding=padding, stride=stride)
 
 		# fully connected layer assuming maxpooling after every convolution.
 		# we try to learn 10 principal components
-		in_dim4 =  53824  #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
+		in_dim4 =  26912  #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
 		out_dim4 = 4096
 		self.fc1 = nn.Linear(in_dim4, out_dim4)
 
@@ -229,7 +229,7 @@ class GrayVAE(nn.Module):
 
 	class Squaren(torch.nn.Module):
 		def forward(self, x):
-			return x.view(x.shape[0], 16, 58, 58)
+			return x.view(x.shape[0], 8, 58, 58)
 
 	class Imagefy(torch.nn.Module):
 		def __init__(self, im_size):
@@ -242,8 +242,8 @@ class GrayVAE(nn.Module):
 	def forward(self, x):
 		x = self.encode(x)
 		x = self.decode(x)
-		x = self.encode(x)
-		x = self.decode(x)
+		#x = self.encode(x)
+		#x = self.decode(x)
 		return x
 
 
@@ -410,7 +410,7 @@ def main():
 	# customize your datasource here
 	dogs = sys.argv[1]	 # TODO: use doc_opt instead of sys.argv
 	image_size = 64		# resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 1		# only use the first data_ratio*100% of the dataset
+	data_ratio = 0.01		# only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
 	batch_size = 32		 # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
