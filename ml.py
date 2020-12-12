@@ -10,7 +10,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 from PIL import Image
-from bhtsne import tsne
+#from bhtsne import tsne
 
 class ImageGrayScale():
 	""" Load any collection of images, but only their grayscale values. """
@@ -151,33 +151,49 @@ class GrayVAE(nn.Module):
 
 		# <encoder>
 
-		in_dim1 = 1   
+		in_dim1 = 1
 		out_dim1 = 8
 		self.conv1 = nn.Conv2d(in_dim1, out_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
 		
-		in_dim2 = out_dim1   
+		in_dim2 = out_dim1
 		out_dim2 = 8
 		self.conv2 = nn.Conv2d(in_dim2, out_dim2, kernel_size=kernel_size, padding=padding, stride=stride)
 
-		in_dim3 = out_dim1   
-		out_dim3 = 4
+		in_dim3 = out_dim2
+		out_dim3 = 8
 		self.conv3 = nn.Conv2d(in_dim3, out_dim3, kernel_size=kernel_size, padding=padding, stride=stride)
 
-		# fully connected layer assuming maxpooling after every convolution.
-		# we try to learn 10 principal components
-		in_dim4 =  13456  #out_dim3 * (self.im_size // (pool_size**amount_pools) )**2 
-		out_dim4 = 64
-		self.fc1 = nn.Linear(in_dim4, out_dim4)
+		in_dim4 = out_dim3   
+		out_dim4 = 8
+		self.conv4 = nn.Conv2d(in_dim4, out_dim4, kernel_size=kernel_size, padding=padding, stride=stride)
+
+		in_dim5 = out_dim4   
+		out_dim5 = 8
+		self.conv5 = nn.Conv2d(in_dim5, out_dim5, kernel_size=kernel_size, padding=padding, stride=stride)
+
+		in_dim6 =  23328  
+		out_dim6 = 8
+		self.fc1 = nn.Linear(in_dim6, out_dim6)
 
 		self.encode = nn.Sequential(
 			self.conv1,
+			nn.BatchNorm2d(out_dim1),
 			nn.LeakyReLU(inplace=True),
 			self.conv2,
+			nn.BatchNorm2d(out_dim2),
 			nn.LeakyReLU(inplace=True),
 			self.conv3,
+			nn.BatchNorm2d(out_dim3),
+			nn.LeakyReLU(inplace=True),
+			self.conv4,
+			nn.BatchNorm2d(out_dim4),
+			nn.LeakyReLU(inplace=True),
+			self.conv5,
+			nn.BatchNorm2d(out_dim5),
 			nn.LeakyReLU(inplace=True),
 			self.Flatten(),
 			self.fc1,
+			nn.BatchNorm1d(out_dim6),
 			nn.LeakyReLU(inplace=True),
 		)
 
@@ -185,21 +201,33 @@ class GrayVAE(nn.Module):
 
 		# <decoder>
 	
-		self.fc2 = nn.Linear(out_dim4, in_dim4)
+		self.fc2 = nn.Linear(out_dim6, in_dim6)
 
-		self.deconv1 = nn.ConvTranspose2d(out_dim3, in_dim3, kernel_size=kernel_size, padding=padding, stride=stride)
-		self.deconv2 = nn.ConvTranspose2d(out_dim2, in_dim2, kernel_size=kernel_size, padding=padding, stride=stride)
-		self.deconv3 = nn.ConvTranspose2d(out_dim1, in_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
+		self.deconv1 = nn.ConvTranspose2d(out_dim5, in_dim5, kernel_size=kernel_size, padding=padding, stride=stride)
+		self.deconv2 = nn.ConvTranspose2d(out_dim4, in_dim4, kernel_size=kernel_size, padding=padding, stride=stride)
+		self.deconv3 = nn.ConvTranspose2d(out_dim3, in_dim3, kernel_size=kernel_size, padding=padding, stride=stride)
+		self.deconv4 = nn.ConvTranspose2d(out_dim2, in_dim2, kernel_size=kernel_size, padding=padding, stride=stride)
+		self.deconv5 = nn.ConvTranspose2d(out_dim1, in_dim1, kernel_size=kernel_size, padding=padding, stride=stride)
 
 		self.decode = nn.Sequential(
 			self.fc2,
+			nn.BatchNorm1d(in_dim6),
 			nn.LeakyReLU(inplace=True),
 			self.Squaren(),
 			self.deconv1,
+			nn.BatchNorm2d(in_dim5),
 			nn.LeakyReLU(inplace=True),
 			self.deconv2,
+			nn.BatchNorm2d(in_dim4),
 			nn.LeakyReLU(inplace=True),
 			self.deconv3,
+			nn.BatchNorm2d(in_dim3),
+			nn.ReLU(inplace=True),
+			self.deconv4,
+			nn.BatchNorm2d(in_dim2),
+			nn.ReLU(inplace=True),
+			self.deconv5,
+			nn.BatchNorm2d(in_dim1),
 			nn.ReLU(inplace=True),
 			self.Imagefy(self.im_size)
 		)
@@ -229,7 +257,7 @@ class GrayVAE(nn.Module):
 
 	class Squaren(torch.nn.Module):
 		def forward(self, x):
-			return x.view(x.shape[0], 4, 58, 58)
+			return x.view(x.shape[0], 8, 54, 54)
 
 	class Imagefy(torch.nn.Module):
 		def __init__(self, im_size):
@@ -242,6 +270,8 @@ class GrayVAE(nn.Module):
 	def forward(self, x):
 		x = self.encode(x)
 		x = self.decode(x)
+		#x = self.encode(x)
+		#x = self.decode(x)
 		return x
 
 
@@ -385,7 +415,7 @@ class GrayVAE(nn.Module):
 				# debugging loss
 				if self.epoch % 100 == 99:
 					logging.info('batch loss@batch_size: %f@%d\tepoch: %d' % (self.loss, batch.shape[0], self.epoch))
-					self.show_tsne()
+					#self.show_tsne()
 					self.save()
 				
 
@@ -408,7 +438,7 @@ def main():
 	# customize your datasource here
 	dogs = sys.argv[1]	 # TODO: use doc_opt instead of sys.argv
 	image_size = 64		# resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 1		# only use the first data_ratio*100% of the dataset
+	data_ratio = 0.01		# only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
 	batch_size = 32		 # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
