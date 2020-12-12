@@ -128,7 +128,7 @@ class DynamicBatchDataLoader():
 class GrayVAE(nn.Module):
 	""" Convolutional Neural Network for classification of grayscale images. """
 
-	def __init__(self, device='cpu', im_size=32, lr=0.01, epoch=0, transf=transforms.Compose([transforms.ToTensor()]), name='autoencoder', clip_grad=False):
+	def __init__(self, device='cuda', im_size=32, lr=0.01, epoch=0, transf=transforms.Compose([transforms.ToTensor()]), name='autoencoder', clip_grad=False):
 		""" 
 			Args:
 
@@ -172,7 +172,7 @@ class GrayVAE(nn.Module):
 		self.conv5 = nn.Conv2d(in_dim5, out_dim5, kernel_size=kernel_size, padding=padding, stride=stride)
 
 		in_dim6 =  23328  
-		out_dim6 = 8
+		out_dim6 = 1024
 		self.fc1 = nn.Linear(in_dim6, out_dim6)
 
 		self.encode = nn.Sequential(
@@ -240,10 +240,10 @@ class GrayVAE(nn.Module):
 		self.optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=0.00001)
 		#self.scheduler = optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=lr/100000, max_lr=lr)
 
-		# gpu computation if possible, else cpu
+		# gpu computation if possible, else cuda
 		
 		self.device = device
-		self.to(self.device)
+		self.cuda()
 
 		# gradient clipping in order to prevent nan values for loss
 		if clip_grad:
@@ -270,8 +270,8 @@ class GrayVAE(nn.Module):
 	def forward(self, x):
 		x = self.encode(x)
 		x = self.decode(x)
-		#x = self.encode(x)
-		#x = self.decode(x)
+		x = self.encode(x)
+		x = self.decode(x)
 		return x
 
 
@@ -330,7 +330,7 @@ class GrayVAE(nn.Module):
 				# see https://discuss.pytorch.org/t/concatenate-torch-tensor-along-given-dimension/2304
 				batch = torch.cat((batch, self.transf(self.im_transform(p))), 0)
 
-			batch = batch.unsqueeze(1).to(self.device)
+			batch = batch.unsqueeze(1).cuda()
 			
 		# a single path was given
 		else:
@@ -351,28 +351,25 @@ class GrayVAE(nn.Module):
 		return transforms.ToPILImage()(tensor)
 
 	def show_tsne(self):
-		dogs = self.transform([('/home/kashim/Downloads/dogsncats/dogs/' + ('%d' % i) + '.jpg' ) for i in range(9000, 9100)])
-		cats = self.transform([('/home/kashim/Downloads/dogsncats/cats/' + ('%d' % i) + '.jpg' ) for i in range(9000, 9100)])
-		cars = self.transform([('/home/kashim/Downloads/dogsncats/cars/' + ('%d' % i).zfill(5) + '.jpg' ) for i in range(1, 101)])
+		dogs = self.transform([('D:\\dogsncats\\dogs\\' + ('%d' % i) + '.jpg' ) for i in range(9000, 9100)])
+		cats = self.transform([('D:\\dogsncats\\cats\\' + ('%d' % i) + '.jpg' ) for i in range(9000, 9100)])
 
 		with torch.no_grad():
 			encoded_dogs = self.encode(dogs)
 			encoded_cats = self.encode(cats)
-			encoded_cars = self.encode(cars)
-			encodings = torch.cat((encoded_dogs, encoded_cats, encoded_cars)).double()
+			encodings = torch.cat((encoded_dogs, encoded_cats)).double()
 			print(encodings.shape)
 			Y = tsne(encodings)
 
 			plt.clf() # https://stackoverflow.com/questions/8213522/when-to-use-cla-clf-or-close-for-clearing-a-plot-in-matplotlib
 			p1 = plt.scatter(Y[:100, 0], Y[:100, 1], color='blue')
 			p2 = plt.scatter(Y[100:200, 0], Y[100:200, 1], color='red')
-			p3 = plt.scatter(Y[200:300, 0], Y[200:300, 1], color='green')
 
-			plt.legend((p1, p2, p3),
-				('Dog', 'Cat', 'Car'),
+			plt.legend((p1, p2),
+				('Dog', 'Cat'),
 				scatterpoints=1,
 				loc='lower right',
-				ncol=3,
+				ncol=2,
 				fontsize=8)
 
 			plt.show()
@@ -398,7 +395,7 @@ class GrayVAE(nn.Module):
 					batch = torch.cat((batch, self.transf(im)))
 
 
-				batch = batch.unsqueeze(1).to(self.device)
+				batch = batch.unsqueeze(1).cuda()
 
 					
 				self.loss = self.criterion(self(batch), batch) 
@@ -410,7 +407,7 @@ class GrayVAE(nn.Module):
 				
 				self.optimizer.step()  # update the parameters
 				#self.scheduler.step()  # update learning rate
-				#training_loader.step() # update batch size
+				training_loader.step() # update batch size
 				
 				# debugging loss
 				if self.epoch % 100 == 99:
@@ -438,7 +435,7 @@ def main():
 	# customize your datasource here
 	dogs = sys.argv[1]	 # TODO: use doc_opt instead of sys.argv
 	image_size = 64		# resize and (black-border)-pad images to image_size x image_size
-	data_ratio = 0.01		# only use the first data_ratio*100% of the dataset
+	data_ratio = 1		# only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
 	batch_size = 32		 # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
@@ -458,10 +455,10 @@ def main():
 	save_per_epoch = 10  # save model every 100 epochs
 
 	# create a GrayVAE
-	net = GrayVAE(im_size=image_size, lr=learning_rate, name='autoencoder', device='cpu')
+	net = GrayVAE(im_size=image_size, lr=learning_rate, name='autoencoder', device='cuda')
 
 	# load an existing model if possible
-	#net.load(model_path)
+	net.load(model_path)
 
 	# train the model
 	plt.ion() # needed for t-sne (t-distributed stochastic neighbourhood embedding encoding) plotting

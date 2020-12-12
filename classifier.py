@@ -147,22 +147,39 @@ class DogDetector(nn.Module):
 		self.vae = GrayVAE()
 		self.vae.load('autoencoder.pth')
 		self.vae.eval()
+		self.vae.cpu()
 
-		in_dim1 =  256 
-		out_dim1 = 1024
+		in_dim1 =  1024 
+		out_dim1 = 512
 		self.fc1 = nn.Linear(in_dim1, out_dim1)
 		
 		in_dim2 =  out_dim1 
-		out_dim2 = 512
+		out_dim2 = 256
 		self.fc2 = nn.Linear(in_dim2, out_dim2)
 		
 		in_dim3 =  out_dim2 
-		out_dim3 = 256
+		out_dim3 = 128
 		self.fc3 = nn.Linear(in_dim3, out_dim3)
 		
 		in_dim4 =  out_dim3 
-		out_dim4 = 1
+		out_dim4 = 64
 		self.fc4 = nn.Linear(in_dim4, out_dim4)
+		
+		in_dim5 =  out_dim4 
+		out_dim5 = 32
+		self.fc5 = nn.Linear(in_dim5, out_dim5)
+		
+		in_dim6 =  out_dim5 
+		out_dim6 = 1
+		self.fc6 = nn.Linear(in_dim6, out_dim6)
+
+		self.LRelu = nn.LeakyReLU()
+		self.BN512 = nn.BatchNorm1d(512)
+		self.BN256 = nn.BatchNorm1d(256)
+		self.BN128 = nn.BatchNorm1d(128)
+		self.BN64 = nn.BatchNorm1d(64)
+		self.BN32 = nn.BatchNorm1d(32)
+		self.BN1 = nn.BatchNorm1d(1)
 
 		self.criterion = nn.BCELoss()
 		
@@ -173,7 +190,7 @@ class DogDetector(nn.Module):
 		# gpu computation if possible, else cpu
 		
 		self.device = device
-		self.to(self.device)
+		self.cpu()
 
 		# gradient clipping in order to prevent nan values for loss
 		if clip_grad:
@@ -184,12 +201,14 @@ class DogDetector(nn.Module):
 
 
 	def forward(self, x):
-		x = self.vae.encode(x)
+		x = nn.BatchNorm1d(1024)(self.vae.encode(x))
 
-		x = self.fc1(x)
-		x = torch.sigmoid(self.fc2(x))
-		x = self.fc3(x)
-		x = torch.sigmoid(self.fc4(x))
+		x = self.LRelu(self.BN512(self.fc1(x)))
+		x = self.LRelu(self.BN256(self.fc2(x)))
+		x = self.LRelu(self.BN128(self.fc3(x)))
+		x = self.LRelu(self.BN64(self.fc4(x)))
+		x = self.LRelu(self.BN32(self.fc5(x)))
+		x = torch.sigmoid(self.BN1(self.fc6(x)))
 		return x
 
 
@@ -252,7 +271,7 @@ class DogDetector(nn.Module):
 				# see https://discuss.pytorch.org/t/concatenate-torch-tensor-along-given-dimension/2304
 				batch = torch.cat((batch, self.transf(self.im_transform(p))), 0)
 
-			batch = batch.unsqueeze(1).to(self.device)
+			batch = batch.unsqueeze(1)
 			
 		# a single path was given
 		else:
@@ -317,8 +336,7 @@ class DogDetector(nn.Module):
 						# image changes, so output changes to class 1
 						target[b] = torch.tensor([0]) # class 0 is not a dog
 
-				batch.to(self.device)
-				target.to(self.device)
+				batch
 	
 				self.loss = self.criterion(self(batch), target.float()) # note that self(batch) outputs the probability of the input being a dog, 
 				                                                                     # while target holds the actual class of the input
@@ -331,13 +349,10 @@ class DogDetector(nn.Module):
 				training_loader.step() # update batch size
 				
 				# debugging loss
-				if self.epoch % 10 == 9:
+				if self.epoch % 100 == 99:
 					logging.info('batch loss@batch_size: %f@%d\tmini-batch: %d' % (self.loss, batch.shape[0], self.epoch))
-				
-				# epoch is finished at this point
-				if self.epoch % save_per_epoch == save_per_epoch - 1:
 					self.save()
-
+				
 				self.epoch += 1
 				if self.epoch == epochs:
 					continue_training = False
@@ -347,19 +362,13 @@ def main():
 	# customize logging
 	log_level = logging.INFO
 	logging.basicConfig(level=log_level)
-#
-	# if CUDA available, use it
-	if torch.cuda.is_available():  
-		dev = 'cuda:0' 
-	else:  
-		dev = 'cpu'   
 
 	# customize your datasource here
 	dogs = sys.argv[1]	 # TODO: use doc_opt instead of sys.argv
 	image_size = 64		# resize and (black-border)-pad images to image_size x image_size
 	data_ratio = 1		# only use the first data_ratio*100% of the dataset
 	train_test_ratio = 0.6 # this would result in a train_test_ratio*100%:(100-train_test_ratio*100)% training:testing split
-	batch_size = 64		 # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
+	batch_size = 32		 # for batch gradient descent set batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 	data_total = ImageGrayScale(dogs, image_size)
 	#batch_size = int(len(data_total)*train_test_ratio*data_ratio)
 
@@ -367,14 +376,14 @@ def main():
 	training_data = data_total[:int(data_ratio*train_test_ratio*len(data_total))]
 	
 	# data loaders (sexy iterators)
-	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, bs_multiplier=1.001, shuffle=True)
+	training_loader = DynamicBatchDataLoader(training_data, batch_size=batch_size, bs_multiplier=1.0001, shuffle=True)
 	
 
 	# customize your DogDetector here
 	model_path = 'classifier.pth'
 	epochs = 1000000
 	learning_rate = 0.001
-	save_per_epoch = 10  # save model every 100 epochs
+	save_per_epoch = 100  # save model every 100 epochs
 
 	# create a DogDetector
 	net = DogDetector(im_size=image_size, lr=learning_rate, name='classifier', device='cpu')
